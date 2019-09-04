@@ -903,7 +903,7 @@ viewer and editor accordingly are shown.
 
  Each item of plugin commands menu can be assigned a hotkey with #F4#, this
 possibility is widely used in ~key macros~@KeyMacro@. The assigned hotkey is
-displayed left to the item. The #A# character in leftmost menu column means that
+displayed left to the item. The #A# character in the leftmost menu column means that
 the corresponding plugin is written for Far 1.7x and it does not support all
 possibilities available in Far 3 (these are, in particular, Unicode characters
 in filenames and in editor).
@@ -949,7 +949,7 @@ topic for the selected plugin will be shown.
 
  Each item of plugins configuration menu can be assigned a hotkey with #F4#,
 this possibility is widely used in ~key macros~@KeyMacro@. The assigned hotkey is
-displayed left to the item. The #A# character in leftmost menu column means that
+displayed left to the item. The #A# character in the leftmost menu column means that
 the corresponding plugin is written for Far 1.7x and it does not support all
 possibilities available in Far 3 (these are, in particular, Unicode characters
 in filenames and in editor).
@@ -1920,7 +1920,7 @@ attributes and none of the exclusion attributes:
 
  The #Compressed#, #Encrypted#, #Not indexed#, #Sparse#, #Temporary# and #Offline# attributes
 are used only on disks with the NTFS file system. #Virtual# attribute is not used in Windows 2000/XP/2003.
-The #Integrity stream# and #No scrub data# attributes only supported on ReFS voumes starting from Windows Server 2012.
+The #Integrity stream# and #No scrub data# attributes are supported only on ReFS volumes starting from Windows Server 2012.
 
 
  #Has more than one hardlink#
@@ -2615,7 +2615,7 @@ feature is disabled while a macro is being recorded or executed.
  #Use home dir#
  This option specifies the target folder of ~CD ~~~@OSCommands@ command.
 If the string is empty, #CD ~~# will attempt to change the current path
-to real “~~” directory (and fail if this is impossible, e.g., because
+to real “~~” directory (and fail if this is impossible, e.g. because
 the directory does not exist).
 
 
@@ -2896,7 +2896,7 @@ is displayed in the leftmost position of the next row.
  NOTE: Strictly speaking, text is rendered by code units, not by
 characters. The size of a code unit depends on the encoding defined
 by the current code page; it is one byte for single-byte encodings
-(e.g., all ANSI code pages) and UTF-8, and two bytes for UTF-16 and
+(e.g. all ANSI code pages) and UTF-8, and two bytes for UTF-16 and
 UTF-16BE encodings. For example:
 
  Code page 1252 (ANSI - Latin I): each byte is displayed in its
@@ -2927,7 +2927,7 @@ left, followed by the hexadecimal representation of the bytes, followed
 by the character representation.
 
  The rendition depends on the encoding defined by the current code
-page. For single-byte encodings (e.g., all ANSI code pages), the bytes
+page. For single-byte encodings (e.g. all ANSI code pages), the bytes
 on each row are represented by 16 double-digit hex values followed by 16
 characters. For UTF-8 encoding, the bytes are represented the same way,
 while the characters are displayed at the positions of the leading bytes
@@ -4150,14 +4150,14 @@ files will be listed on a single stripe.
               C - ^<wrap>group digits using the character from Windows settings;
               T - ^<wrap>use decimal units instead of binary,
 i.e., to calculate kilobytes, the size will be divided by 1000 instead
-of by 1024; in this mode unit character is shown in lower case, e.g., #k#,
+of by 1024; in this mode unit character is shown in lower case, e.g. #k#,
 #m#, #g# instead of #K#, #M#, #G#;
               F - ^<wrap>show size as a decimal fraction with
-no more than three digits before decimal point, e.g., 999 bytes will
+no more than three digits before decimal point, e.g. 999 bytes will
 be shown as #999#, while 1024 bytes as #1.00 K#; note that the behavior
 depends on whether the #T# modifier is used;
               E - ^<wrap>economic mode, no space between the
-size and the unit character, e.g., #1.00k#;
+size and the unit character, e.g. #1.00k#;
 
  D          - file last write date;
  T          - file last write time;
@@ -5883,7 +5883,7 @@ $ #far:config Editor.CharCodeBase#
 
  0 - восьмеричное значение (6 символов с ведущим нулём)
  1 - десятеричное значение (5 символов)
- 2 - шестнадцатеричное значение (4 символа под цифру + символ '‘h’)
+ 2 - шестнадцатеричное значение (4 символа под цифру + символ ‘h’)
 
  По умолчанию значение = 1 (десятеричное значение).
 
