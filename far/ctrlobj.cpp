@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "ctrlobj.hpp"
 
@@ -68,7 +71,7 @@ ControlObject::ControlObject()
 
 	SetColor(COL_COMMANDLINEUSERSCREEN);
 	GotoXY(0, ScrY - 3);
-	ShowCopyright();
+	ShowVersion(false);
 	GotoXY(0, ScrY - 2);
 	MoveCursor({ 0, ScrY - 1 });
 
@@ -108,8 +111,10 @@ void ControlObject::Init(int DirCount)
 
 	FarChDir(FPanels->ActivePanel()->GetCurDir());
 
-	FPanels->LeftPanel()->SetCustomSortMode(Global->Opt->LeftPanel.SortMode, SO_KEEPCURRENT);
-	FPanels->RightPanel()->SetCustomSortMode(Global->Opt->RightPanel.SortMode, SO_KEEPCURRENT);
+	// BUGBUG
+	FPanels->LeftPanel()->SetCustomSortMode(panel_sort(Global->Opt->LeftPanel.SortMode.Get()), sort_order::keep, false);
+	FPanels->RightPanel()->SetCustomSortMode(panel_sort(Global->Opt->RightPanel.SortMode.Get()), sort_order::keep, false);
+
 	Global->WindowManager->SwitchToPanels();  // otherwise panels are empty
 }
 
@@ -147,27 +152,27 @@ ControlObject::~ControlObject()
 }
 
 
-void ControlObject::ShowCopyright(DWORD Flags)
+void ControlObject::ShowVersion(bool const Direct)
 {
-	if (Flags&1)
+	if (Direct)
 	{
-		std::wcout << build::version_string() << L'\n' << build::copyright() << std::endl;
+		std::wcout << build::version_string() << L'\n' << build::copyright() << L'\n' << std::endl;
+		return;
 	}
-	else
-	{
-		COORD Size, CursorPosition;
-		console.GetSize(Size);
-		console.GetCursorPosition(CursorPosition);
-		int FreeSpace=Size.Y-CursorPosition.Y-1;
 
-		if (FreeSpace<5)
-			ScrollScreen(5-FreeSpace);
+	point Size;
+	console.GetSize(Size);
+	point CursorPosition;
+	console.GetCursorPosition(CursorPosition);
+	const auto FreeSpace = Size.y - CursorPosition.y - 1;
 
-		GotoXY(0,ScrY-4);
-		Text(build::version_string());
-		GotoXY(0,ScrY-3);
-		Text(build::copyright());
-	}
+	if (FreeSpace < 5 && DoWeReallyHaveToScroll(5))
+		ScrollScreen(5-FreeSpace);
+
+	GotoXY(0,ScrY-4);
+	Text(build::version_string());
+	GotoXY(0,ScrY-3);
+	Text(build::copyright());
 }
 
 FilePanels* ControlObject::Cp() const

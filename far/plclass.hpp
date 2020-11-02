@@ -36,17 +36,18 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Internal:
 #include "bitflags.hpp"
 #include "windowsfwd.hpp"
-#include "exception_handler.hpp"
-#include "exception.hpp"
 #include "plugin.hpp"
 
 // Platform:
+#include "platform.hpp"
 #include "platform.fwd.hpp"
 
 // Common:
 #include "common.hpp"
-#include "common/scope_exit.hpp"
+#include "common/function_ref.hpp"
 #include "common/range.hpp"
+#include "common/smart_ptr.hpp"
+#include "common/utility.hpp"
 
 // External:
 
@@ -60,7 +61,7 @@ class PluginsCacheConfig;
 
 std::exception_ptr& GlobalExceptionPtr();
 
-enum EXPORTS_ENUM
+enum export_index
 {
 	iGetGlobalInfo,
 	iSetStartupInfo,
@@ -124,7 +125,7 @@ public:
 	explicit plugin_factory(PluginManager* owner);
 	using plugin_module_ptr = std::unique_ptr<i_plugin_module>;
 	using function_address = void*;
-	using exports_array = std::array<std::optional<function_address>, ExportsCount>;
+	using exports_array = std::array<function_address, ExportsCount>;
 
 	struct export_name
 	{
@@ -139,7 +140,7 @@ public:
 	virtual plugin_module_ptr Create(const string& filename) = 0;
 	virtual bool Destroy(plugin_module_ptr& module) = 0;
 	virtual function_address Function(const plugin_module_ptr& Instance, const export_name& Name) = 0;
-	virtual void ProcessError(string_view Function) const {}
+	virtual void ProcessError(std::string_view Function) const {}
 	virtual bool IsExternal() const { return false; }
 	virtual string Title() const { return {}; }
 	virtual VersionInfo version() const { return {}; }
@@ -167,9 +168,10 @@ public:
 		return nullptr;
 	}
 
+	template<typename T>
 	auto GetProcAddress(const char* Name) const
 	{
-		return m_Module.GetProcAddress(Name);
+		return m_Module.GetProcAddress<T>(Name);
 	}
 
 	explicit operator bool() const noexcept
@@ -187,22 +189,19 @@ public:
 	NONCOPYABLE(native_plugin_factory);
 	using plugin_factory::plugin_factory;
 
-	bool IsPlugin(const string& filename) const override;
+	bool IsPlugin(const string& FileName) const override;
 	plugin_module_ptr Create(const string& filename) override;
-	bool Destroy(plugin_module_ptr& module) override;
+	bool Destroy(plugin_module_ptr& instance) override;
 	function_address Function(const plugin_module_ptr& Instance, const export_name& Name) override;
 
 private:
-	// the rest shouldn't be here, just an optimization for OEM plugins
+	// This shouldn't be here, just an optimization for OEM plugins
 	virtual bool FindExport(std::string_view ExportName) const;
-	bool IsPlugin2(const void* Module) const;
+	bool IsPlugin(const void* Data) const;
 };
 
-template<EXPORTS_ENUM id, bool Native>
-struct prototype;
-
-template<EXPORTS_ENUM id, bool Native>
-using prototype_t = typename prototype<id, Native>::type;
+template<export_index id, bool native>
+struct export_type;
 
 namespace detail
 {
@@ -213,14 +212,23 @@ namespace detail
 		operator intptr_t() const { return Result; }
 		operator void*() const { return ToPtr(Result); }
 		operator bool() const { return Result != 0; }
-		EXPORTS_ENUM id;
 		intptr_t Result;
 	};
+
+	// A workaround for 2017.
+	// TODO: remove once we drop support for VS2017.
+	template<typename result_type, typename function, typename... args>
+	void assign(result_type& Result, function const& Function, args&&... Args)
+	{
+		Result = Function(FWD(Args)...);
+	}
 }
 
-class Plugin: noncopyable
+class Plugin
 {
 public:
+	NONCOPYABLE(Plugin);
+
 	Plugin(plugin_factory* Factory, const string& ModuleName);
 	virtual ~Plugin();
 
@@ -266,13 +274,19 @@ public:
 #ifndef NO_WRAPPER
 	virtual bool IsOemPlugin() const { return false; }
 #endif // NO_WRAPPER
-	virtual const string& GetHotkeyName() const { return m_strGuid; }
+	virtual const string& GetHotkeyName() const { return m_strUuid; }
 
-	virtual bool InitLang(const string& Path, const string& Language);
+	virtual bool InitLang(string_view Path, string_view Language);
 	void CloseLang();
 
-	bool has(EXPORTS_ENUM id) const { return Exports[id].has_value(); }
-	bool has(const detail::ExecuteStruct& es) const { return has(es.id); }
+	bool has(export_index id) const { return Exports[id] != nullptr; }
+
+	template<typename T>
+	bool has(const T& es) const
+	{
+		static_assert(std::is_base_of_v<detail::ExecuteStruct, T>);
+		return has(es.export_id);
+	}
 
 	const string& ModuleName() const { return m_strModuleName; }
 	const string& CacheName() const  { return m_strCacheName; }
@@ -281,7 +295,7 @@ public:
 	const string& Author() const { return strAuthor; }
 	const VersionInfo& version() const { return m_PluginVersion; }
 	const VersionInfo& MinFarVersion() const { return m_MinFarVersion; }
-	const GUID& Id() const { return m_Guid; }
+	const UUID& Id() const { return m_Uuid; }
 	bool IsPendingRemove() const { return bPendingRemove; }
 	const wchar_t* Msg(intptr_t Id) const;
 
@@ -296,79 +310,43 @@ public:
 	bool Active() const {return Activity != 0;}
 	void AddDialog(const window_ptr& Dlg);
 	bool RemoveDialog(const window_ptr& Dlg);
+	[[nodiscard]]
 	auto keep_activity() { return make_raii_wrapper(this, [](Plugin* p){ ++p->Activity; }, [](Plugin* p){ --p->Activity; });  }
 
 protected:
-	template<EXPORTS_ENUM ExportId, bool Native = true>
+	template<export_index Export, bool Native = true>
 	struct ExecuteStruct: detail::ExecuteStruct
 	{
 		explicit ExecuteStruct(intptr_t FallbackValue = 0)
 		{
-			id = ExportId;
 			Result = FallbackValue;
 		}
 
-		using export_id = std::integral_constant<EXPORTS_ENUM, ExportId>;
-		using native = std::integral_constant<bool, Native>;
+		static constexpr inline auto export_id = Export;
+		using type = typename export_type<Export, Native>::type;
 
 		using detail::ExecuteStruct::operator=;
 	};
 
-	template<typename T, class... args>
-	void ExecuteFunctionSeh(T& es, args&&... Args)
+	template<typename T, typename... args>
+	void ExecuteFunction(T& es, args&&... Args)
 	{
-		Prologue(); ++Activity;
-		SCOPE_EXIT{ --Activity; Epilogue(); };
-
-		const auto ProcessException = [&](const auto& Handler, auto&&... ProcArgs)
+		ExecuteFunctionImpl(T::export_id, [&]
 		{
-			Handler(FWD(ProcArgs)..., m_Factory->ExportsNames()[T::export_id::value].UName, this)? HandleFailure(T::export_id::value) : throw;
-		};
-
-		try
-		{
-			using function_type = prototype_t<T::export_id::value, T::native::value>;
-			const auto Function = reinterpret_cast<function_type>(*Exports[T::export_id::value]);
+			using function_type = typename T::type;
+			const auto Function = reinterpret_cast<function_type>(Exports[T::export_id]);
 
 			if constexpr (std::is_void_v<std::invoke_result_t<function_type, args...>>)
 				Function(FWD(Args)...);
 			else
-				es = Function(FWD(Args)...);
-
-			rethrow_if(GlobalExceptionPtr());
-			m_Factory->ProcessError(m_Factory->ExportsNames()[T::export_id::value].UName);
-		}
-		catch (const std::exception& e)
-		{
-			ProcessException(ProcessStdException, e);
-		}
-		catch (...)
-		{
-			ProcessException(ProcessUnknownException);
-		}
+				::detail::assign(es, Function, FWD(Args)...);
+		});
 	}
-
-	template<typename T, typename... args>
-	void ExecuteFunction(T& es, args&&... Args)
-	{
-		seh_invoke_with_ui(
-		[&]
-		{
-			ExecuteFunctionSeh(es, FWD(Args)...);
-		},
-		[this]
-		{
-			HandleFailure(T::export_id::value);
-		},
-		m_Factory->ExportsNames()[T::export_id::value].UName, this);
-	}
-
-	void HandleFailure(EXPORTS_ENUM id);
 
 	virtual void Prologue() {}
 	virtual void Epilogue() {}
 
-	plugin_factory::exports_array Exports;
+	plugin_factory::exports_array Exports{};
 
 	std::unordered_set<window_ptr> m_dialogs;
 	plugin_factory* m_Factory;
@@ -382,13 +360,15 @@ private:
 
 	void InitExports();
 	void ClearExports();
-	void SetGuid(const GUID& Guid);
+	void SetUuid(const UUID& Uuid);
 
 	template<typename T>
 	void SetInstance(T* Object) const
 	{
 		Object->Instance = m_Instance->opaque();
 	}
+
+	void ExecuteFunctionImpl(export_index ExportId, function_ref<void()> Callback);
 
 	string strTitle;
 	string strDescription;
@@ -402,13 +382,13 @@ private:
 	VersionInfo m_MinFarVersion{};
 	VersionInfo m_PluginVersion{};
 
-	GUID m_Guid;
-	string m_strGuid;
+	UUID m_Uuid;
+	string m_strUuid;
 };
 
 plugin_factory_ptr CreateCustomPluginFactory(PluginManager* Owner, const string& Filename);
 
-#define DECLARE_GEN_PLUGIN_FUNCTION(name, is_native, signature) template<> struct prototype<name, is_native>  { using type = signature; };
+#define DECLARE_GEN_PLUGIN_FUNCTION(name, is_native, signature) template<> struct export_type<name, is_native>  { using type = signature; };
 #define WA(string) { L##string##sv, string##sv }
 
 #endif // PLCLASS_HPP_E324EC16_24F2_4402_BA87_74212799246D

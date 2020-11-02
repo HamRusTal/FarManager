@@ -29,16 +29,17 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "platform.security.hpp"
 
 // Internal:
-#include "lasterror.hpp"
 
 // Platform:
 #include "platform.hpp"
 #include "platform.concurrency.hpp"
-#include "platform.memory.hpp"
 
 // Common:
 
@@ -54,10 +55,9 @@ namespace
 		return os::handle(OpenProcessToken(GetCurrentProcess(), DesiredAccess, &Handle)? Handle : nullptr);
 	}
 
-	static bool lookup_privilege_value(const wchar_t* Name, LUID& Value)
+	static const auto& lookup_privilege_value(const wchar_t* Name)
 	{
-		using value_type = std::pair<LUID, bool>;
-		static std::unordered_map<string, value_type> s_Cache;
+		static std::unordered_map<string, std::optional<LUID>> s_Cache;
 		static os::critical_section s_CS;
 
 		SCOPED_ACTION(std::lock_guard)(s_CS);
@@ -65,15 +65,15 @@ namespace
 		const auto [Iterator, IsEmplaced] = s_Cache.try_emplace(Name);
 
 		auto& [MapKey, MapValue] = *Iterator;
-		auto& [Luid, Result] = MapValue;
 
 		if (IsEmplaced)
 		{
-			Result = LookupPrivilegeValue(nullptr, MapKey.c_str(), &Luid) != FALSE;
+			LUID Luid;
+			if (LookupPrivilegeValue(nullptr, MapKey.c_str(), &Luid))
+				MapValue = Luid;
 		}
 
-		Value = Luid;
-		return Result;
+		return MapValue;
 	}
 
 	static bool operator==(const LUID& a, const LUID& b)
@@ -121,10 +121,9 @@ namespace os::security
 
 		for (const auto& i: Names)
 		{
-			LUID_AND_ATTRIBUTES laa = { {}, SE_PRIVILEGE_ENABLED };
-			if (lookup_privilege_value(i, laa.Luid))
+			if (const auto& Luid = lookup_privilege_value(i))
 			{
-				NewState->Privileges[NewState->PrivilegeCount++] = laa;
+				NewState->Privileges[NewState->PrivilegeCount++] = { *Luid, SE_PRIVILEGE_ENABLED };
 			}
 			// TODO: log if failed
 		}
@@ -137,7 +136,7 @@ namespace os::security
 			return;
 
 		DWORD ReturnLength;
-		m_Changed = AdjustTokenPrivileges(Token.native_handle(), FALSE, NewState.get(), static_cast<DWORD>(m_SavedState.size()), m_SavedState.get(), &ReturnLength) && m_SavedState->PrivilegeCount;
+		m_Changed = AdjustTokenPrivileges(Token.native_handle(), FALSE, NewState.data(), static_cast<DWORD>(m_SavedState.size()), m_SavedState.data(), &ReturnLength) && m_SavedState->PrivilegeCount;
 		// TODO: log if failed
 	}
 
@@ -151,9 +150,36 @@ namespace os::security
 			// TODO: log
 			return;
 
-		SCOPED_ACTION(GuardLastError);
-		AdjustTokenPrivileges(Token.native_handle(), FALSE, m_SavedState.get(), 0, nullptr, nullptr);
+		SCOPED_ACTION(os::last_error_guard);
+
+		AdjustTokenPrivileges(Token.native_handle(), FALSE, m_SavedState.data(), 0, nullptr, nullptr);
 		// TODO: log if failed
+	}
+
+	static auto get_token_privileges(HANDLE TokenHandle)
+	{
+		block_ptr<TOKEN_PRIVILEGES> Result(1024);
+
+		if (!os::detail::ApiDynamicReceiver(Result,
+			[&](span<TOKEN_PRIVILEGES> Buffer)
+			{
+				DWORD LengthNeeded = 0;
+				if (!GetTokenInformation(TokenHandle, TokenPrivileges, Buffer.data(), static_cast<DWORD>(Buffer.size()), &LengthNeeded))
+					return static_cast<size_t>(LengthNeeded);
+				return Buffer.size();
+			},
+			[](size_t ReturnedSize, size_t AllocatedSize)
+			{
+				return ReturnedSize > AllocatedSize;
+			},
+			[](span<const TOKEN_PRIVILEGES>)
+			{}
+		))
+		{
+			Result.reset();
+		}
+
+		return Result;
 	}
 
 	bool privilege::check(span<const wchar_t* const> const Names)
@@ -162,27 +188,20 @@ namespace os::security
 		if (!Token)
 			return false;
 
-		DWORD TokenInformationLength = 0;
-		if (!GetTokenInformation(Token.native_handle(), TokenPrivileges, nullptr, 0, &TokenInformationLength) || TokenInformationLength)
+		const auto TokenPrivileges = get_token_privileges(Token.native_handle());
+		if (!TokenPrivileges)
 			return false;
 
-		block_ptr<TOKEN_PRIVILEGES> TokenInformation{ TokenInformationLength };
-		if (!GetTokenInformation(Token.native_handle(), TokenPrivileges, TokenInformation.get(), TokenInformationLength, &TokenInformationLength))
-			return false;
+		const span Privileges(TokenPrivileges->Privileges, TokenPrivileges->PrivilegeCount);
 
-		const auto Privileges = span(TokenInformation->Privileges, TokenInformation->PrivilegeCount);
-
-		for (const auto& Name: Names)
+		return std::all_of(ALL_CONST_RANGE(Names), [&](const wchar_t* const Name)
 		{
-			LUID Luid;
-			if (!lookup_privilege_value(Name, Luid))
+			const auto& Luid = lookup_privilege_value(Name);
+			if (!Luid)
 				return false;
 
-			const auto ItemIterator = std::find_if(ALL_CONST_RANGE(Privileges), [&](const auto& Item) { return Item.Luid == Luid; });
-			if (ItemIterator == Privileges.end() || !(ItemIterator->Attributes & (SE_PRIVILEGE_ENABLED | SE_PRIVILEGE_ENABLED_BY_DEFAULT)))
-				return false;
-		}
-
-		return true;
+			const auto ItemIterator = std::find_if(ALL_CONST_RANGE(Privileges), [&](const auto& Item) { return Item.Luid == *Luid; });
+			return ItemIterator != Privileges.end() && ItemIterator->Attributes & (SE_PRIVILEGE_ENABLED | SE_PRIVILEGE_ENABLED_BY_DEFAULT);
+		});
 	}
 }

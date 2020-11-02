@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "fileowner.hpp"
 
@@ -63,7 +66,7 @@ static bool SidToName(PSID Sid, string& Name, const string& Computer)
 
 	for (;;)
 	{
-		if (LookupAccountSid(EmptyToNull(Computer), Sid, AccountName.get(), &AccountLength, DomainName.get(), &DomainLength, &snu))
+		if (LookupAccountSid(EmptyToNull(Computer), Sid, AccountName.data(), &AccountLength, DomainName.data(), &DomainLength, &snu))
 			break;
 
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
@@ -85,9 +88,9 @@ static bool SidToName(PSID Sid, string& Name, const string& Computer)
 	Name.clear();
 
 	if (DomainLength)
-		append(Name, string_view(DomainName.get(), DomainLength), L'\\', string_view(AccountName.get(), AccountLength));
+		append(Name, string_view(DomainName.data(), DomainLength), L'\\', string_view(AccountName.data(), AccountLength));
 	else
-		Name.assign(AccountName.get(), AccountLength);
+		Name.assign(AccountName.data(), AccountLength);
 
 	return true;
 }
@@ -115,12 +118,12 @@ namespace
 		{
 			const auto Size = GetLengthSid(rhs);
 			m_Data.reset(Size);
-			CopySid(Size, m_Data.get(), rhs);
+			CopySid(Size, m_Data.data(), rhs);
 		}
 
 		bool operator==(const sid& rhs) const
 		{
-			return EqualSid(m_Data.get(), rhs.m_Data.get()) != FALSE;
+			return EqualSid(m_Data.data(), rhs.m_Data.data()) != FALSE;
 		}
 
 		explicit operator bool() const
@@ -130,7 +133,7 @@ namespace
 
 		auto get() const
 		{
-			return m_Data.get();
+			return m_Data.data();
 		}
 
 		void reset(size_t Size)
@@ -145,8 +148,8 @@ namespace
 
 		size_t get_hash() const
 		{
-			const auto Begin = reinterpret_cast<const char*>(m_Data.get());
-			const auto End = Begin + GetLengthSid(m_Data.get());
+			const auto Begin = m_Data.cbegin();
+			const auto End = Begin + GetLengthSid(m_Data.data());
 			return hash_range(Begin, End);
 		}
 
@@ -180,7 +183,7 @@ static bool SidToNameCached(PSID Sid, string& Name, const string& Computer)
 	return false;
 }
 
-static bool ProcessFileOwner(const string& Name, function_ref<bool(PSID)> const Callable)
+static bool ProcessFileOwner(string_view const Name, function_ref<bool(PSID)> const Callable)
 {
 	const auto SecurityDescriptor = os::fs::get_file_security(Name, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION);
 	if (!SecurityDescriptor)
@@ -188,7 +191,7 @@ static bool ProcessFileOwner(const string& Name, function_ref<bool(PSID)> const 
 
 	PSID pOwner;
 	BOOL OwnerDefaulted;
-	if (!GetSecurityDescriptorOwner(SecurityDescriptor.get(), &pOwner, &OwnerDefaulted))
+	if (!GetSecurityDescriptorOwner(SecurityDescriptor.data(), &pOwner, &OwnerDefaulted))
 		return false;
 
 	if (!IsValidSid(pOwner))
@@ -197,7 +200,7 @@ static bool ProcessFileOwner(const string& Name, function_ref<bool(PSID)> const 
 	return Callable(pOwner);
 }
 
-static bool IsOwned(const string& Name, PSID const Owner)
+static bool IsOwned(string_view const Name, PSID const Owner)
 {
 	return ProcessFileOwner(Name, [&](PSID const Sid)
 	{
@@ -207,11 +210,11 @@ static bool IsOwned(const string& Name, PSID const Owner)
 
 
 // TODO: elevation
-bool GetFileOwner(const string& Computer, const string& Name, string& strOwner)
+bool GetFileOwner(const string& Computer, string_view const Object, string& Owner)
 {
-	return ProcessFileOwner(Name, [&](PSID const Sid)
+	return ProcessFileOwner(Object, [&](PSID const Sid)
 	{
-		return SidToNameCached(Sid, strOwner, Computer);
+		return SidToNameCached(Sid, Owner, Computer);
 	});
 }
 
@@ -230,7 +233,7 @@ static sid get_sid(const string& Name)
 	SID_NAME_USE Use;
 	for (;;)
 	{
-		if (LookupAccountName(nullptr, Name.c_str(), Sid.get(), &SidSize, ReferencedDomainName.get(), &ReferencedDomainNameSize, &Use))
+		if (LookupAccountName(nullptr, Name.c_str(), Sid.get(), &SidSize, ReferencedDomainName.data(), &ReferencedDomainNameSize, &Use))
 			break;
 
 		if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
@@ -258,12 +261,12 @@ bool SetOwnerInternal(const string& Object, const string& Owner)
 
 	SCOPED_ACTION(os::security::privilege){ SE_TAKE_OWNERSHIP_NAME, SE_RESTORE_NAME };
 
-	const auto Result = SetNamedSecurityInfo(const_cast<LPWSTR>(Object.c_str()), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, Sid.get(), nullptr, nullptr, nullptr);
+	const auto Result = SetNamedSecurityInfo(const_cast<wchar_t*>(Object.c_str()), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, Sid.get(), nullptr, nullptr, nullptr);
 	SetLastError(Result);
 	return Result == ERROR_SUCCESS;
 }
 
-bool SetFileOwner(const string& Object, const string& Owner)
+bool SetFileOwner(string_view const Object, const string& Owner)
 {
 	const NTPath NtObject(Object);
 

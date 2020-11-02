@@ -30,13 +30,16 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "plugsettings.hpp"
 
 // Internal:
 #include "ctrlobj.hpp"
 #include "history.hpp"
-#include "FarGuid.hpp"
+#include "uuids.far.hpp"
 #include "shortcuts.hpp"
 #include "dizlist.hpp"
 #include "config.hpp"
@@ -44,6 +47,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "plugins.hpp"
 #include "configdb.hpp"
 #include "global.hpp"
+#include "exception.hpp"
 
 // Platform:
 
@@ -51,12 +55,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "common/bytes_view.hpp"
 #include "common/function_ref.hpp"
 #include "common/string_utils.hpp"
+#include "common/uuid.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-const wchar_t* AbstractSettings::Add(const string& String)
+const wchar_t* AbstractSettings::Add(string_view const String)
 {
 	return static_cast<const wchar_t*>(Add(String.data(), (String.size() + 1) * sizeof(wchar_t)));
 }
@@ -71,7 +76,7 @@ const void* AbstractSettings::Add(const void* Data, size_t Size)
 void* AbstractSettings::Allocate(size_t Size)
 {
 	m_Data.emplace_back(Size);
-	return m_Data.back().get();
+	return m_Data.back().data();
 }
 
 class PluginSettings: public AbstractSettings
@@ -95,9 +100,9 @@ private:
 };
 
 
-std::unique_ptr<AbstractSettings> AbstractSettings::CreatePluginSettings(const GUID& Guid, bool const Local)
+std::unique_ptr<AbstractSettings> AbstractSettings::CreatePluginSettings(const UUID& Uuid, bool const Local)
 {
-	const auto pPlugin = Global->CtrlObject->Plugins->FindPlugin(Guid);
+	const auto pPlugin = Global->CtrlObject->Plugins->FindPlugin(Uuid);
 	if (!pPlugin)
 		return nullptr;
 
@@ -114,11 +119,13 @@ std::unique_ptr<AbstractSettings> AbstractSettings::CreatePluginSettings(const G
 
 PluginSettings::PluginSettings(const Plugin* const pPlugin, bool const Local)
 {
-	const auto strGuid = GuidToStr(pPlugin->Id());
-	PluginsCfg = ConfigProvider().CreatePluginsConfig(strGuid, Local, false);
+	const auto strUuid = uuid::str(pPlugin->Id());
+	PluginsCfg = ConfigProvider().CreatePluginsConfig(strUuid, Local, false);
 	PluginsCfg->BeginTransaction();
 
-	m_Keys.emplace_back(PluginsCfg->CreateKey(HierarchicalConfig::root_key, strGuid, &pPlugin->Title()));
+	const auto Key = PluginsCfg->CreateKey(HierarchicalConfig::root_key, strUuid);
+	PluginsCfg->SetKeyDescription(Key, pPlugin->Title());
+	m_Keys.emplace_back(Key);
 
 	if (!Global->Opt->ReadOnlyConfig)
 	{
@@ -146,21 +153,22 @@ bool PluginSettings::Set(const FarSettingsItem& Item)
 	if (Item.Root >= m_Keys.size())
 		return false;
 
+	const auto name = NullToEmpty(Item.Name);
 	switch(Item.Type)
 	{
 	case FST_SUBKEY:
 		return false;
 
 	case FST_QWORD:
-		PluginsCfg->SetValue(m_Keys[Item.Root], Item.Name, Item.Number);
+		PluginsCfg->SetValue(m_Keys[Item.Root], name, Item.Number);
 		return true;
 
 	case FST_STRING:
-		PluginsCfg->SetValue(m_Keys[Item.Root], Item.Name, Item.String);
+		PluginsCfg->SetValue(m_Keys[Item.Root], name, NullToEmpty(Item.String));
 		return true;
 
 	case FST_DATA:
-		PluginsCfg->SetValue(m_Keys[Item.Root], Item.Name, bytes_view(Item.Data.Data, Item.Data.Size));
+		PluginsCfg->SetValue(m_Keys[Item.Root], name, view_bytes(Item.Data.Data, Item.Data.Size));
 		return true;
 
 	default:
@@ -173,6 +181,7 @@ bool PluginSettings::Get(FarSettingsItem& Item)
 	if (Item.Root >= m_Keys.size())
 		return false;
 
+	const auto name = NullToEmpty(Item.Name);
 	switch(Item.Type)
 	{
 	case FST_SUBKEY:
@@ -181,7 +190,7 @@ bool PluginSettings::Get(FarSettingsItem& Item)
 	case FST_QWORD:
 		{
 			unsigned long long value;
-			if (PluginsCfg->GetValue(m_Keys[Item.Root], Item.Name, value))
+			if (PluginsCfg->GetValue(m_Keys[Item.Root], name, value))
 			{
 				Item.Number = value;
 				return true;
@@ -192,7 +201,7 @@ bool PluginSettings::Get(FarSettingsItem& Item)
 	case FST_STRING:
 		{
 			string data;
-			if (PluginsCfg->GetValue(m_Keys[Item.Root], Item.Name, data))
+			if (PluginsCfg->GetValue(m_Keys[Item.Root], name, data))
 			{
 				Item.String = Add(data);
 				return true;
@@ -203,7 +212,7 @@ bool PluginSettings::Get(FarSettingsItem& Item)
 	case FST_DATA:
 		{
 			bytes data;
-			if (PluginsCfg->GetValue(m_Keys[Item.Root], Item.Name, data))
+			if (PluginsCfg->GetValue(m_Keys[Item.Root], name, data))
 			{
 				Item.Data.Data = Add(data.data(), data.size());
 				Item.Data.Size = data.size();
@@ -258,7 +267,7 @@ public:
 	class FarSettingsHistoryItems;
 
 private:
-	bool FillHistory(int Type, const string& HistoryName, FarSettingsEnum& Enum, function_ref<bool(history_record_type)> Filter);
+	bool FillHistory(int Type, string_view HistoryName, FarSettingsEnum& Enum, function_ref<bool(history_record_type)> Filter);
 	std::vector<FarSettingsHistoryItems> m_Enum;
 	std::vector<string> m_Keys;
 };
@@ -278,7 +287,7 @@ public:
 
 	FarSettingsHistoryItems() = default;
 
-	void add(FarSettingsHistory& Item, string&& Name, string&& Param, string&& File, const GUID& Guid)
+	void add(FarSettingsHistory& Item, string&& Name, string&& Param, string&& File, const UUID& Uuid)
 	{
 		m_Names.emplace_front(std::move(Name));
 		m_Params.emplace_front(std::move(Param));
@@ -286,7 +295,7 @@ public:
 		Item.Name = m_Names.front().c_str();
 		Item.Param = m_Params.front().c_str();
 		Item.File = m_Files.front().c_str();
-		Item.PluginId = Guid;
+		Item.PluginId = Uuid;
 		m_Items.emplace_back(Item);
 	}
 
@@ -313,9 +322,13 @@ bool PluginSettings::Enum(FarSettingsEnum& Enum)
 
 	const auto& root = m_Keys[Enum.Root];
 
-	for(auto& i: PluginsCfg->KeysEnumerator(root))
 	{
-		NewEnumItem.add(item, std::move(i));
+		string KeyName;
+		for (const auto& Key : PluginsCfg->KeysEnumerator(root))
+		{
+			if (PluginsCfg->GetKeyName(root, Key, KeyName))
+				NewEnumItem.add(item, std::move(KeyName));
+		}
 	}
 
 	for(auto& [Name, Value]: PluginsCfg->ValuesEnumerator(root))
@@ -352,7 +365,7 @@ int PluginSettings::SubKey(const FarSettingsValue& Value, bool bCreate)
 		return 0;
 
 	const auto root = bCreate? PluginsCfg->CreateKey(m_Keys[Value.Root], Value.Value) : PluginsCfg->FindByName(m_Keys[Value.Root], Value.Value);
-	if (!root)
+	if (!bCreate && !root)
 		return 0;
 
 	m_Keys.emplace_back(root);
@@ -414,7 +427,7 @@ bool FarSettings::Enum(FarSettingsEnum& Enum)
 			FarSettingsHistoryItems NewEnumItem;
 			for(auto& i: Shortcuts(Enum.Root - FSSF_FOLDERSHORTCUT_0).Enumerator())
 			{
-				NewEnumItem.add(item, std::move(i.Folder), std::move(i.PluginData), std::move(i.PluginFile), i.PluginGuid);
+				NewEnumItem.add(item, std::move(i.Folder), std::move(i.PluginData), std::move(i.PluginFile), i.PluginUuid);
 			}
 			NewEnumItem.get(Enum);
 			m_Enum.emplace_back(std::move(NewEnumItem));
@@ -453,7 +466,7 @@ int FarSettings::SubKey(const FarSettingsValue& Value, bool bCreate)
 
 static const auto& HistoryRef(int Type)
 {
-	const auto IsSave = [Type]() -> bool
+	const auto IsPersistent = [Type]() -> bool
 	{
 		switch (Type)
 		{
@@ -465,26 +478,25 @@ static const auto& HistoryRef(int Type)
 		}
 	};
 
-	return IsSave()? ConfigProvider().HistoryCfg() : ConfigProvider().HistoryCfgMem();
+	return IsPersistent()? ConfigProvider().HistoryCfg() : ConfigProvider().HistoryCfgMem();
 }
 
-bool FarSettings::FillHistory(int Type,const string& HistoryName,FarSettingsEnum& Enum, function_ref<bool(history_record_type)> const Filter)
+bool FarSettings::FillHistory(int Type, string_view const HistoryName, FarSettingsEnum& Enum, function_ref<bool(history_record_type)> const Filter)
 {
 	FarSettingsHistory item = {};
 	FarSettingsHistoryItems NewEnumItem;
 
 	for(auto& i: HistoryRef(Type)->Enumerator(Type, HistoryName))
 	{
-		if(Filter(i.Type))
-		{
-			item.Time = os::chrono::nt_clock::to_filetime(i.Time);
-			item.Lock = i.Lock;
-			GUID Guid;
-			if (i.Guid.empty() || !StrToGuid(i.Guid, Guid))
-				Guid = FarGuid;
-			NewEnumItem.add(item, std::move(i.Name), std::move(i.Data), std::move(i.File), Guid);
-		}
+		if (!Filter(i.Type))
+			continue;
+
+		item.Time = os::chrono::nt_clock::to_filetime(i.Time);
+		item.Lock = i.Lock;
+		const auto Uuid = uuid::try_parse(i.Uuid);
+		NewEnumItem.add(item, std::move(i.Name), std::move(i.Data), std::move(i.File), Uuid? *Uuid : FarUuid);
 	}
+
 	NewEnumItem.get(Enum);
 	m_Enum.emplace_back(std::move(NewEnumItem));
 	return true;

@@ -2,7 +2,7 @@
 
 ;Workaround for Visual C++ CRT incompatibility with old Windows versions
 
-;Copyright © 2010 Far Group
+;Copyright Â© 2010 Far Group
 ;All rights reserved.
 ;
 ;Redistribution and use in source and binary forms, with or without
@@ -58,6 +58,7 @@ HOOK RtlFirstEntrySList                     ,  4, :dword
 HOOK QueryDepthSList                        ,  4, :dword
 HOOK GetNumaHighestNodeNumber               ,  4, :dword
 HOOK GetLogicalProcessorInformation         ,  8, :dword, :dword
+HOOK SetThreadStackGuarantee                ,  4, :dword
 endif
 
 end

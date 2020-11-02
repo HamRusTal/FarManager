@@ -32,6 +32,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "tvar.hpp"
 
@@ -173,7 +176,7 @@ static TypeString checkTypeString(const string& TestStr)
 						}
 
 						isExpSign=true;
-						wchar_t ch3=*ptrTestStr++;
+						const auto ch3 = *ptrTestStr++;
 
 						if (!std::iswdigit(ch3))   // за знаком идет число?
 						{
@@ -298,7 +301,7 @@ double TVar::toDouble()
 	dnum = asDouble();
 	vType = Type::Double;
 	return dnum;
-};
+}
 
 const string& TVar::asString() const
 {
@@ -411,7 +414,7 @@ bool TVar::operator<(const TVar& rhs) const
 			return asInteger() < rhs.asInteger();
 
 		case Type::Double:
-			return asInteger() < rhs.asDouble();
+			return asDouble() < rhs.asDouble();
 
 		case Type::String:
 			switch (checkTypeString(rhs.asString()))
@@ -423,7 +426,7 @@ bool TVar::operator<(const TVar& rhs) const
 				return asInteger() < rhs.asInteger();
 
 			case tsFloat:
-				return asInteger() < rhs.asDouble();
+				return asDouble() < rhs.asDouble();
 			}
 			break;
 		}
@@ -434,8 +437,6 @@ bool TVar::operator<(const TVar& rhs) const
 		{
 		case Type::Unknown:
 		case Type::Integer:
-			return asDouble() < rhs.asInteger();
-
 		case Type::Double:
 			return asDouble() < rhs.asDouble();
 
@@ -446,8 +447,6 @@ bool TVar::operator<(const TVar& rhs) const
 				return string_sort::less(asString(), rhs.asString());
 
 			case tsInt:
-				return asDouble() < rhs.asInteger();
-
 			case tsFloat:
 				return asDouble() < rhs.asDouble();
 			}

@@ -62,7 +62,7 @@ public:
 	void RestoreArea(int RestoreCursor = TRUE);
 	void Discard();
 	void AppendArea(const SaveScreen *NewArea);
-	void Resize(int ScrX, int ScrY, bool SyncWithConsole);
+	void Resize(int DesiredWidth, int DesiredHeight, bool SyncWithConsole);
 	void DumpBuffer(const wchar_t *Title);
 
 private:
@@ -74,7 +74,7 @@ private:
 	matrix<FAR_CHAR_INFO> ScreenBuf;
 	point m_Cursor;
 	bool CurVisible;
-	DWORD CurSize;
+	size_t CurSize;
 	rectangle m_Where;
 };
 

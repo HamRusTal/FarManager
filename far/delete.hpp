@@ -47,9 +47,18 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //----------------------------------------------------------------------------
 
-void Delete(const panel_ptr& SrcPanel, bool Wipe);
-void DeleteDirTree(const string& Dir);
-bool DeleteFileWithFolder(const string& FileName);
+enum class delete_type
+{
+	recycle,
+	remove,
+	erase,
+
+	delete_type_count
+};
+
+void Delete(const panel_ptr& SrcPanel, delete_type Type);
+void DeleteDirTree(string_view Dir);
+bool DeleteFileWithFolder(string_view FileName);
 
 class delayed_deleter: noncopyable
 {

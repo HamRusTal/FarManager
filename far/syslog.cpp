@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "syslog.hpp"
 
@@ -59,6 +62,9 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // External:
 
 //----------------------------------------------------------------------------
+
+WARNING_PUSH()
+WARNING_DISABLE_CLANG("-Wused-but-marked-unused")
 
 #if !defined(SYSLOG)
 #if defined(SYSLOG_OT)             || \
@@ -99,11 +105,11 @@ static string str_vprintf(const wchar_t * format, va_list argptr)
 		//_vsnwprintf не всегда ставит '\0' в конце.
 		//Поэтому надо обнулить и передать в _vsnwprintf размер-1.
 		buffer[size - 1] = 0;
-		length = _vsnwprintf(buffer.get(), size - 1, format, argptr);
+		length = _vsnwprintf(buffer.data(), size - 1, format, argptr);
 	}
 	while (length < 0);
 
-	return string(buffer.get());
+	return string(buffer.data());
 }
 
 static string str_printf(const wchar_t * format, ...)
@@ -127,10 +133,10 @@ static bool IsLogON()
 
 static void FarOutputDebugString(const wchar_t* Str)
 {
-	if (IsDebuggerPresent())
+	if (os::debug::debugger_present())
 	{
-		OutputDebugString(Str);
-		OutputDebugString(L"\n");
+		os::debug::print(Str);
+		os::debug::print(L"\n");
 	}
 }
 
@@ -199,7 +205,7 @@ void OpenSysLog()
 	if (!LogStream)
 	{
 		auto strLogFileName = path::join(Global->g_strFarPath, L"$Log");
-		DWORD Attr=os::fs::get_file_attributes(strLogFileName);
+		const auto Attr = os::fs::get_file_attributes(strLogFileName);
 
 		if (Attr == INVALID_FILE_ATTRIBUTES)
 		{
@@ -477,7 +483,7 @@ void SaveScreenDumpBuffer(const wchar_t *Title,const FAR_CHAR_INFO *Buffer,int X
 		}
 	}
 
-	wchar_t_ptr line(X2-X1+4);
+	const wchar_t_ptr line(X2-X1+4);
 
 	if (fp && line)
 	{
@@ -499,7 +505,7 @@ void SaveScreenDumpBuffer(const wchar_t *Title,const FAR_CHAR_INFO *Buffer,int X
 			}
 
 			line[i]=0;
-			fwprintf(fp,L"%s\n",line.get());
+			fwprintf(fp,L"%s\n", line.data());
 		}
 
 		fwprintf(fp,L"\n");
@@ -543,7 +549,7 @@ void PluginsStackItem_Dump(const wchar_t *Title,const PluginsListItem *ListItems
 			DEF_SORTMODE_(BY_SIZE),   DEF_SORTMODE_(BY_DIZ),   DEF_SORTMODE_(BY_OWNER),
 			DEF_SORTMODE_(BY_COMPRESSEDSIZE),DEF_SORTMODE_(BY_NUMLINKS),
 			DEF_SORTMODE_(BY_NUMSTREAMS),DEF_SORTMODE_(BY_STREAMSSIZE),
-			DEF_SORTMODE_(BY_FULLNAME)
+			DEF_SORTMODE_(BY_NAMEONLY)
 		};
 		static_assert(std::size(__SORT) == static_cast<size_t>(panel_sort::COUNT));
 
@@ -886,20 +892,6 @@ string __EE_ToName(int Command)
 #endif
 }
 
-string __EEREDRAW_ToName(int Command)
-{
-#if defined(SYSLOG)
-#define DEF_EEREDRAW_(m) { (DWORD)(intptr_t)EEREDRAW_##m , L###m }
-	__XXX_Name EEREDRAW[]=
-	{
-		DEF_EEREDRAW_(ALL),
-	};
-	return _XXX_ToName(Command,L"EEREDRAW",EEREDRAW,std::size(EEREDRAW));
-#else
-	return {};
-#endif
-}
-
 string __ESPT_ToName(int Command)
 {
 #if defined(SYSLOG_KEYMACRO) || defined(SYSLOG_ECTL)
@@ -1151,13 +1143,13 @@ string __MCODE_ToName(DWORD OpCode)
 		DEF_MCODE_(F_KEYBAR_SHOW),              // N=KeyBar.Show([N])
 		DEF_MCODE_(F_HISTORY_DISABLE),          // N=History.Disable([State])
 		DEF_MCODE_(F_FMATCH),                   // N=FMatch(S,Mask)
-		DEF_MCODE_(F_PLUGIN_MENU),              // N=Plugin.Menu(Guid[,MenuGuid])
-		DEF_MCODE_(F_PLUGIN_CALL),              // N=Plugin.Call(Guid[,Item])
-		DEF_MCODE_(F_PLUGIN_SYNCCALL),          // N=Plugin.SyncCall(Guid[,Item])
+		DEF_MCODE_(F_PLUGIN_MENU),              // N=Plugin.Menu(Uuid[,MenuUuid])
+		DEF_MCODE_(F_PLUGIN_CALL),              // N=Plugin.Call(Uuid[,Item])
+		DEF_MCODE_(F_PLUGIN_SYNCCALL),          // N=Plugin.SyncCall(Uuid[,Item])
 		DEF_MCODE_(F_PLUGIN_LOAD),              // N=Plugin.Load(DllPath[,ForceLoad])
-		DEF_MCODE_(F_PLUGIN_COMMAND),           // N=Plugin.Command(Guid[,Command])
+		DEF_MCODE_(F_PLUGIN_COMMAND),           // N=Plugin.Command(Uuid[,Command])
 		DEF_MCODE_(F_PLUGIN_UNLOAD),            // N=Plugin.UnLoad(DllPath)
-		DEF_MCODE_(F_PLUGIN_EXIST),             // N=Plugin.Exist(Guid)
+		DEF_MCODE_(F_PLUGIN_EXIST),             // N=Plugin.Exist(Uuid)
 		DEF_MCODE_(F_MENU_FILTER),              // N=Menu.Filter(Action[,Mode])
 		DEF_MCODE_(F_MENU_FILTERSTR),           // S=Menu.FilterStr([Action[,S]])
 		DEF_MCODE_(F_DLG_SETFOCUS),             // N=Dlg->SetFocus([ID])
@@ -1328,11 +1320,13 @@ string __FARKEY_ToName(int Key)
 	if (!IsLogON())
 		return {};
 
-	string Name;
-	if (!(far_key_code(Key) >= KEY_MACRO_BASE && far_key_code(Key) <= KEY_MACRO_ENDBASE) && KeyToText(Key,Name))
+	if (!(far_key_code(Key) >= KEY_MACRO_BASE && far_key_code(Key) <= KEY_MACRO_ENDBASE))
 	{
-		inplace::quote_unconditional(Name);
-		return str_printf(L"%s [%u/0x%08X]", Name.c_str(), Key, Key);
+		if (auto Name = KeyToText(Key); !Name.empty())
+		{
+			inplace::quote_unconditional(Name);
+			return str_printf(L"%s [%u/0x%08X]", Name.c_str(), Key, Key);
+		}
 	}
 
 	return str_printf(L"\"KEY_????\" [%u/0x%08X]",Key,Key);
@@ -1718,7 +1712,7 @@ string __INPUT_RECORD_Dump(const INPUT_RECORD *rec)
 		case KEY_EVENT:
 		case 0:
 		{
-			WORD AsciiChar = (WORD)(BYTE)rec->Event.KeyEvent.uChar.AsciiChar;
+			const auto Char = rec->Event.KeyEvent.uChar.UnicodeChar;
 			Records = str_printf(
 			    L"%s: %s, %d, Vk=%s, Scan=0x%04X uChar=[U='%c' (0x%04X): A='%C' (0x%02X)] Ctrl=0x%08X (%c%c%c%c%c - %c%c%c%c)",
 			    (rec->EventType==KEY_EVENT?L"KEY_EVENT_RECORD":L"(internal, macro)_KEY_EVENT"),
@@ -1728,8 +1722,8 @@ string __INPUT_RECORD_Dump(const INPUT_RECORD *rec)
 			    rec->Event.KeyEvent.wVirtualScanCode,
 			    ((rec->Event.KeyEvent.uChar.UnicodeChar && !(rec->Event.KeyEvent.uChar.UnicodeChar == L'\t' || IsEol(rec->Event.KeyEvent.uChar.UnicodeChar)))?rec->Event.KeyEvent.uChar.UnicodeChar:L' '),
 			    rec->Event.KeyEvent.uChar.UnicodeChar,
-			    ((AsciiChar && AsciiChar != '\t' && !IsEol(AsciiChar))? AsciiChar : ' '),
-			    AsciiChar,
+			    ((Char && Char != L'\t' && !IsEol(Char))? Char : L' '),
+			    Char,
 			    rec->Event.KeyEvent.dwControlKeyState,
 			    (rec->Event.KeyEvent.dwControlKeyState&LEFT_CTRL_PRESSED?L'C':L'c'),
 			    (rec->Event.KeyEvent.dwControlKeyState&LEFT_ALT_PRESSED?L'A':L'a'),
@@ -2060,3 +2054,5 @@ void PrintSysLogStat()
 	FarOutputDebugString(oss);
 #endif
 }
+
+WARNING_POP()

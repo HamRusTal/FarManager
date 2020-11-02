@@ -99,12 +99,12 @@ private:
 	size_t GetTabSize() const override;
 	EXPAND_TABS GetTabExpandMode() const override;
 	string GetInputMask() const override {return m_Mask;}
-	void SetInputMask(const string& InputMask) override;
+	void SetInputMask(string_view InputMask) override;
 	const string& WordDiv() const override;
 	int GetPrevCurPos() const override { return PrevCurPos; }
 	void SetPrevCurPos(int Pos) override { PrevCurPos = Pos; }
 	int GetCursorSize() const override { return CursorSize; }
-	void SetCursorSize(int Size) override { CursorSize = Size; }
+	void SetCursorSize(size_t Size) override { CursorSize = static_cast<int>(Size); }
 	int GetMacroSelectionStart() const override {return MacroSelectionStart;}
 	void SetMacroSelectionStart(int Value) override {MacroSelectionStart = Value;}
 	int GetLineCursorPos() const override {return CursorPos;}

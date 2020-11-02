@@ -47,19 +47,16 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 [[nodiscard]]
-inline bool IsEol(wchar_t x) { return x == L'\r' || x == L'\n'; }
+inline constexpr bool IsEol(wchar_t x) noexcept { return x == L'\r' || x == L'\n'; }
 
 [[nodiscard]]
-inline bool IsBlankOrEos(wchar_t x) { return std::iswblank(x) || !x; }
+inline bool IsBlankOrEos(wchar_t x) noexcept { return std::iswblank(x) || !x; }
 
 [[nodiscard]]
-const string& GetSpaces();
+string_view GetSpaces();
 
 [[nodiscard]]
-const string& GetEols();
-
-[[nodiscard]]
-const string& GetSpacesAndEols();
+string_view GetEols();
 
 [[nodiscard]]
 bool is_alpha(wchar_t Char);

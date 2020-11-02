@@ -41,13 +41,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Platform:
 
 // Common:
+#include "common/bytes_view.hpp"
 #include "common/range.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
-
-class bytes_view;
 
 namespace sqlite
 {
@@ -63,8 +62,8 @@ class far_sqlite_exception : public far_exception
 class SQLiteDb: noncopyable, virtual protected transactional
 {
 public:
-	using busy_handler = int(*)(void*, int);
-	static bool library_load();
+	using busy_handler = int(*)(void*, int) noexcept;
+	static void library_load();
 	static void library_free();
 
 	const string& GetPath() const { return m_Path; }
@@ -101,13 +100,6 @@ protected:
 
 		explicit SQLiteStmt(sqlite::sqlite3_stmt* Stmt): m_Stmt(Stmt) {}
 
-		template<class T>
-		struct transient_t
-		{
-			explicit transient_t(const T& Value): m_Value(Value) {}
-			const T& m_Value;
-		};
-
 		SQLiteStmt& Reset();
 		bool Step() const;
 		void Execute() const;
@@ -123,31 +115,20 @@ protected:
 		std::string GetColTextUTF8(int Col) const;
 		int GetColInt(int Col) const;
 		unsigned long long GetColInt64(int Col) const;
-		bytes_view GetColBlob(int Col) const;
+		bytes GetColBlob(int Col) const;
 		column_type GetColType(int Col) const;
 
 	private:
-		template<typename type>
-		SQLiteStmt& BindImpl(const type* Value)
-		{
-			return Value? BindImpl(*Value) : BindImpl(nullptr);
-		}
-
-		SQLiteStmt& BindImpl(std::nullptr_t);
 		SQLiteStmt& BindImpl(int Value);
 		SQLiteStmt& BindImpl(long long Value);
-		SQLiteStmt& BindImpl(string&& Value);
-		SQLiteStmt& BindImpl(string_view Value, bool bStatic = true);
-		SQLiteStmt& BindImpl(bytes_view&& Value);
-		SQLiteStmt& BindImpl(const bytes_view& Value, bool bStatic = true);
+		SQLiteStmt& BindImpl(string_view Value);
+		SQLiteStmt& BindImpl(bytes_view Value);
 		SQLiteStmt& BindImpl(unsigned int Value) { return BindImpl(static_cast<int>(Value)); }
 		SQLiteStmt& BindImpl(unsigned long long Value) { return BindImpl(static_cast<long long>(Value)); }
-		template<class T>
-		SQLiteStmt& BindImpl(const transient_t<T>& Value) { return BindImpl(Value.m_Value, false); }
 
 		sqlite::sqlite3* db() const;
 
-		struct stmt_deleter { void operator()(sqlite::sqlite3_stmt*) const; };
+		struct stmt_deleter { void operator()(sqlite::sqlite3_stmt*) const noexcept; };
 		std::unique_ptr<sqlite::sqlite3_stmt, stmt_deleter> m_Stmt;
 		int m_Param{};
 	};
@@ -161,9 +142,6 @@ protected:
 
 	template<typename T>
 	using stmt_init = std::pair<T, std::string_view>;
-
-	template<class T>
-	static auto transient(const T& Value) { return SQLiteStmt::transient_t<T>(Value); }
 
 	SQLiteStmt create_stmt(std::string_view Stmt, bool Persistent = true) const;
 
@@ -185,10 +163,12 @@ protected:
 	void Exec(span<std::string_view const> Commands) const;
 	void SetWALJournalingMode() const;
 	void EnableForeignKeysConstraints() const;
+	void CreateNumericCollation() const;
 
 	unsigned long long LastInsertRowID() const;
 
 	auto_statement AutoStatement(size_t Index) const { return auto_statement(&m_Statements[Index]); }
+	static void KeepStatement(auto_statement& Stmt) { (void)Stmt.release(); }
 
 	// No forwarding here - ExecuteStatement is atomic so we don't have to deal with lifetimes
 	template<typename... args>
@@ -215,6 +195,7 @@ protected:
 		FORWARD_FUNCTION(Exec)
 		FORWARD_FUNCTION(SetWALJournalingMode)
 		FORWARD_FUNCTION(EnableForeignKeysConstraints)
+		FORWARD_FUNCTION(CreateNumericCollation)
 		FORWARD_FUNCTION(PrepareStatements)
 
 #undef FORWARD_FUNCTION
@@ -227,7 +208,7 @@ private:
 	class implementation;
 	friend class implementation;
 
-	struct db_closer { void operator()(sqlite::sqlite3*) const; };
+	struct db_closer { void operator()(sqlite::sqlite3*) const noexcept; };
 	using database_ptr = std::unique_ptr<sqlite::sqlite3, db_closer>;
 
 	database_ptr Open(string_view Path, busy_handler BusyHandler, bool WAL);
@@ -241,7 +222,7 @@ private:
 	SQLiteStmt m_stmt_EndTransaction;
 	mutable std::vector<SQLiteStmt> m_Statements;
 	struct init{} m_Init;
-	size_t m_ActiveTransactions{};
+	std::atomic_size_t m_ActiveTransactions{};
 };
 
 #endif // SQLITEDB_HPP_1C228281_1C8E_467F_9070_520E01F7DB70

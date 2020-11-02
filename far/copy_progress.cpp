@@ -28,6 +28,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "copy_progress.hpp"
 
@@ -74,15 +77,6 @@ copy_progress::copy_progress(bool Move, bool Total, bool Time):
 size_t copy_progress::CanvasWidth()
 {
 	return 52;
-}
-
-static string GetTimeText(std::chrono::seconds Seconds)
-{
-	// BUGBUG copy time > 4.166 days (100 hrs) will not be displayed correctly
-	if (Seconds > 100h)
-		Seconds = 99h + Seconds % 1h;
-
-	return ConvertDurationToHMS(Seconds);
 }
 
 void copy_progress::UpdateAllBytesInfo(unsigned long long FileSize)
@@ -157,7 +151,19 @@ void copy_progress::Flush()
 		Text({ m_Rect.left + 5, m_Rect.top + 10 }, m_Color, m_TotalBar);
 	}
 
-	Text({ m_Rect.left + 5, m_Rect.top + (m_Total ? 12 : 11) }, m_Color, m_Time);
+	if (!m_Time.empty())
+	{
+		const size_t Width = m_Rect.width() - 10;
+		const auto XPos = m_Rect.left + 5;
+		const auto YPos = m_Rect.top + (m_Total? 12 : 11);
+
+		const auto ConsumedSpace = m_Time.size() + 1 + m_TimeLeft.size() + 1 + m_Speed.size();
+		const auto FillerWidth = ConsumedSpace >= Width? 0 : (Width - ConsumedSpace) / 2;
+
+		Text({ XPos, YPos }, m_Color, m_Time);
+		Text({ static_cast<int>(XPos + m_Time.size() + 1 + FillerWidth), YPos }, m_Color, m_TimeLeft);
+		Text({ static_cast<int>(m_Rect.right + 1 - 5 - m_Speed.size()), YPos }, m_Color, m_Speed);
+	}
 
 	if (m_Total || (m_Files.Total == 1))
 	{
@@ -174,7 +180,7 @@ void copy_progress::SetProgressValue(unsigned long long CompletedSize, unsigned 
 {
 	SetCurrentProgress(CompletedSize, TotalSize);
 
-	auto BytesDone = GetBytesDone();
+	const auto BytesDone = GetBytesDone();
 
 	if (m_Total)
 	{
@@ -183,7 +189,7 @@ void copy_progress::SetProgressValue(unsigned long long CompletedSize, unsigned 
 
 	if (m_ShowTime)
 	{
-		auto SizeToGo = (m_Bytes.Total > BytesDone) ? (m_Bytes.Total - BytesDone) : 0;
+		const auto SizeToGo = (m_Bytes.Total > BytesDone) ? (m_Bytes.Total - BytesDone) : 0;
 		UpdateTime(BytesDone, SizeToGo);
 	}
 
@@ -227,14 +233,11 @@ void copy_progress::CreateBackground()
 
 void copy_progress::SetNames(const string& Src, const string& Dst)
 {
-	if (m_ShowTime)
+	if (m_ShowTime && !m_Files.Copied)
 	{
-		if (!m_Files.Copied)
-		{
-			m_CopyStartTime = std::chrono::steady_clock::now();
-			WaitUserTime = 0s;
-			m_CalcTime = 0s;
-		}
+		m_CopyStartTime = std::chrono::steady_clock::now();
+		WaitUserTime = 0s;
+		m_CalcTime = 0s;
 	}
 
 	const auto NameWidth = static_cast<int>(CanvasWidth());
@@ -261,39 +264,27 @@ void copy_progress::UpdateTime(unsigned long long SizeDone, unsigned long long S
 {
 	m_CalcTime = std::chrono::steady_clock::now() - m_CopyStartTime - WaitUserTime;
 
-	string tmp[3];
-	const auto CalcTime = std::chrono::duration_cast<std::chrono::seconds>(m_CalcTime);
-	if (CalcTime != CalcTime.zero())
+	if (const auto CalcTime = m_CalcTime / 1s * 1s; CalcTime != 0s)
 	{
 		SizeDone -= m_Bytes.Skipped;
 
-		const auto CPS = SizeDone / CalcTime.count();
-
-		const auto strCalcTimeStr = GetTimeText(CalcTime);
+		m_Time = concat(msg(lng::MCopyTimeInfoElapsed), L' ', ConvertDurationToHMS(CalcTime));
 
 		if (m_SpeedUpdateCheck)
 		{
 			if (SizeToGo)
 			{
-				m_TimeLeft = GetTimeText(std::chrono::seconds(CPS? SizeToGo / CPS : 0));
+				// double to avoid potential overflows with large files
+				m_TimeLeft = concat(msg(lng::MCopyTimeInfoRemaining), L' ', ConvertDurationToHMS(std::chrono::duration_cast<std::chrono::seconds>(CalcTime * 1.0 / SizeDone * SizeToGo)));
 			}
 
-			m_Speed = FileSizeToStr(CPS, 8, COLFLAGS_FLOATSIZE | COLFLAGS_GROUPDIGITS);
-			if (starts_with(m_Speed, L' ') && std::iswdigit(m_Speed.back()))
-			{
-				m_Speed.erase(0, 1);
-				m_Speed += L' ';
-			}
+			m_Speed = concat(trim(FileSizeToStr(SizeDone / (CalcTime / 1s), 8, COLFLAGS_FLOATSIZE | COLFLAGS_GROUPDIGITS)), msg(lng::MCopyTimeInfoSpeed));
 		}
-
-		tmp[0] = strCalcTimeStr;
-		tmp[1] = m_TimeLeft;
-		tmp[2] = m_Speed;
 	}
 	else
 	{
-		tmp[0] = tmp[1] = tmp[2] = string(8, L' ');
+		m_Time.clear();
+		m_TimeLeft.clear();
+		m_Speed.clear();
 	}
-
-	m_Time = format(msg(lng::MCopyTimeInfo), tmp[0], tmp[1], tmp[2]);
 }

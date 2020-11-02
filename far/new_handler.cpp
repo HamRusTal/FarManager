@@ -29,6 +29,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "new_handler.hpp"
 
@@ -57,8 +60,7 @@ namespace
 
 new_handler::new_handler():
 	m_BufferSize{ X, Y },
-	m_Screen(CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CONSOLE_TEXTMODE_BUFFER, nullptr)),
-	m_OldHandler()
+	m_Screen(CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CONSOLE_TEXTMODE_BUFFER, nullptr))
 {
 	if (!m_Screen)
 		return;
@@ -84,10 +86,10 @@ new_handler::new_handler():
 	if (!SetConsoleCursorInfo(m_Screen.native_handle(), &cci))
 		return;
 
-	const string_view Strings[] =
+	const string_view Strings[]
 	{
 		build::version_string(),
-		L""sv,
+		{},
 		L"Not enough memory is available to complete this operation."sv,
 		L"Press Enter to retry or Esc to continue..."sv
 	};

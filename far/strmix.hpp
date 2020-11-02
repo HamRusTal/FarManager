@@ -42,21 +42,23 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Platform:
 
 // Common:
+#include "common/bytes_view.hpp"
 #include "common/enum_tokens.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-class bytes;
-class bytes_view;
 class RegExp;
 struct RegExpMatch;
 struct MatchHash;
 
-wchar_t* QuoteSpace(wchar_t *Str);
-wchar_t* InsertQuote(wchar_t *Str);
-wchar_t* QuoteSpaceOnly(wchar_t *Str);
+namespace legacy
+{
+	wchar_t* QuoteSpace(wchar_t* Str);
+	wchar_t* InsertQuotes(wchar_t* Str);
+	wchar_t* QuoteSpaceOnly(wchar_t* Str);
+}
 
 string &QuoteSpace(string &strStr);
 
@@ -90,39 +92,45 @@ class [[nodiscard]] wrapped_text : public enumerator<wrapped_text, string_view>
 	IMPLEMENTS_ENUMERATOR(wrapped_text);
 
 public:
-	explicit wrapped_text(string_view Str, size_t Width, string_view Break = L"\n"sv, bool BreakWords = true);
-	explicit wrapped_text(string&& Str, size_t Width, string_view Break = L"\n"sv, bool BreakWords = true);
+	template<typename string_type>
+	explicit wrapped_text(string_type&& Str, size_t const Width):
+		m_Str(FWD(Str)),
+		m_Tail(m_Str),
+		m_Width(Width? Width : m_Tail.size())
+	{
+	}
 
 private:
+	[[nodiscard]]
 	bool get(bool Reset, string_view& Value) const;
 
-	string m_StrBuffer;
-	string_view m_Str;
+	string_copyref m_Str;
 	string_view mutable m_Tail;
-	string_view m_Break;
 	size_t m_Width;
-	bool m_BreakWords;
 };
 
 void PrepareUnitStr();
 
 [[nodiscard]]
-string FileSizeToStr(unsigned long long Size, int Width = -1, unsigned long long ViewFlags = COLFLAGS_GROUPDIGITS);
+string FileSizeToStr(unsigned long long FileSize, int WidthWithSign = -1, unsigned long long ViewFlags = COLFLAGS_GROUPDIGITS);
 
 [[nodiscard]]
-bool CheckFileSizeStringFormat(const string& FileSizeStr);
+bool CheckFileSizeStringFormat(string_view FileSizeStr);
 
 [[nodiscard]]
-unsigned long long ConvertFileSizeString(const string& FileSizeStr);
+unsigned long long ConvertFileSizeString(string_view FileSizeStr);
 
 [[nodiscard]]
 string GroupDigits(unsigned long long Value);
 
 [[nodiscard]]
-inline bool IsWordDiv(const string& WordDiv, wchar_t Chr) { return !Chr || contains(WordDiv, Chr); }
+inline bool IsWordDiv(string_view const WordDiv, wchar_t const Chr)
+{
+	return !Chr || contains(WordDiv, Chr);
+}
 
 [[nodiscard]]
-bool FindWordInString(const string& Str, size_t CurPos, size_t& Begin, size_t& End, const string& WordDiv);
+bool FindWordInString(string_view Str, size_t CurPos, size_t& Begin, size_t& End, string_view WordDiv0);
 
 namespace legacy
 {
@@ -142,18 +150,51 @@ namespace inplace
 
 [[nodiscard]]
 string truncate_left(string Str, size_t MaxLength);
+
+[[nodiscard]]
+string truncate_left(string_view Str, size_t MaxLength);
+
 [[nodiscard]]
 string truncate_right(string Str, size_t MaxLength);
+
+[[nodiscard]]
+string truncate_right(string_view Str, size_t MaxLength);
+
 [[nodiscard]]
 string truncate_center(string Str, size_t MaxLength);
+
+[[nodiscard]]
+string truncate_center(string_view Str, size_t MaxLength);
+
 [[nodiscard]]
 string truncate_path(string Str, size_t MaxLength);
 
 [[nodiscard]]
-bool IsCaseMixed(string_view strStr);
+string truncate_path(string_view Str, size_t MaxLength);
+
+[[nodiscard]]
+bool IsCaseMixed(string_view Str);
 
 [[nodiscard]]
 bool SearchString(
+	string_view Haystack,
+	string_view Needle,
+	string_view NeedleUpper,
+	string_view NeedleLower,
+	const RegExp& re,
+	RegExpMatch* pm,
+	MatchHash* hm,
+	int& CurPos,
+	bool Case,
+	bool WholeWords,
+	bool Reverse,
+	bool Regexp,
+	int* SearchLength,
+	string_view WordDiv
+);
+
+[[nodiscard]]
+bool SearchAndReplaceString(
 	string_view Haystack,
 	string_view Needle,
 	string_view NeedleUpper,
@@ -169,11 +210,14 @@ bool SearchString(
 	bool Regexp,
 	bool PreserveStyle,
 	int* SearchLength,
-	string_view WordDiv = {}
+	string_view WordDiv
 );
 
 [[nodiscard]]
-inline wchar_t* UNSAFE_CSTR(const string& s) {return const_cast<wchar_t*>(s.c_str());}
+inline wchar_t* UNSAFE_CSTR(const string& s) noexcept {return const_cast<wchar_t*>(s.c_str());}
+
+[[nodiscard]]
+inline wchar_t* UNSAFE_CSTR(null_terminated const& s) noexcept {return const_cast<wchar_t*>(s.c_str());}
 
 template<class container>
 [[nodiscard]]
@@ -198,7 +242,7 @@ auto FlagsToString(unsigned long long Flags, const container& From, wchar_t Sepa
 
 template<class container>
 [[nodiscard]]
-auto StringToFlags(const string& strFlags, const container& From, const string_view Separators = L"|;, "sv)
+auto StringToFlags(string_view const strFlags, const container& From, const string_view Separators = L"|;, "sv)
 {
 	decltype(std::begin(From)->first) Flags {};
 
@@ -222,49 +266,29 @@ char IntToHex(int h);
 int HexToInt(char h);
 
 [[nodiscard]]
-std::string BlobToHexString(const void* Blob, size_t Size, char Separator = ',');
-
-[[nodiscard]]
-std::string BlobToHexString(const bytes_view& Blob, char Separator = ',');
-
-[[nodiscard]]
-bytes HexStringToBlob(std::string_view Hex, char Separator = ',');
-
-[[nodiscard]]
-string BlobToHexWString(const void* Blob, size_t Size, wchar_t Separator = L',');
-
-[[nodiscard]]
-string BlobToHexWString(const bytes_view& Blob, char Separator = ',');
+string BlobToHexString(bytes_view Blob, wchar_t Separator = L',');
 
 [[nodiscard]]
 bytes HexStringToBlob(string_view Hex, wchar_t Separator = L',');
 
-template<class S, class T>
+template<class T>
 [[nodiscard]]
-auto to_hex_string_t(T Value)
+auto to_hex_wstring(T Value)
 {
 	static_assert(std::is_integral_v<T>);
-	S Result(sizeof(T) * 2, '0');
+	string Result(sizeof(T) * 2, '0');
 	for (int i = sizeof(T) * 2 - 1; i >= 0; --i, Value >>= 4)
 		Result[i] = IntToHex(Value & 0xF);
 	return Result;
 }
 
-template<class T>
-[[nodiscard]]
-auto to_hex_string(T Value) { return to_hex_string_t<std::string>(Value); }
-
-template<class T>
-[[nodiscard]]
-auto to_hex_wstring(T Value) { return to_hex_string_t<string>(Value); }
-
 [[nodiscard]]
 string ExtractHexString(string_view HexString);
 
 [[nodiscard]]
-string ConvertHexString(const string& From, uintptr_t Codepage, bool FromHex);
+string ConvertHexString(string_view From, uintptr_t Codepage, bool FromHex);
 
-char* xstrncpy(char* dest, const char* src, size_t DestSize);
-wchar_t* xwcsncpy(wchar_t* dest, const wchar_t* src, size_t DestSize);
+void xstrncpy(char* dest, const char* src, size_t DestSize);
+void xwcsncpy(wchar_t* dest, const wchar_t* src, size_t DestSize);
 
 #endif // STRMIX_HPP_66F8DC2A_61A6_4C06_9B54_E0513A9735FA

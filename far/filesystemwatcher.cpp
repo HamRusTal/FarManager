@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "filesystemwatcher.hpp"
 
@@ -38,6 +41,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "elevation.hpp"
 #include "exception_handler.hpp"
 #include "pathmix.hpp"
+#include "exception.hpp"
 
 // Platform:
 #include "platform.fs.hpp"
@@ -68,7 +72,7 @@ FileSystemWatcher::~FileSystemWatcher()
 	}
 }
 
-void FileSystemWatcher::Set(const string& Directory, bool WatchSubtree)
+void FileSystemWatcher::Set(string_view const Directory, bool const WatchSubtree)
 {
 	Release();
 
@@ -88,7 +92,7 @@ void FileSystemWatcher::Watch(bool got_focus, bool check_time)
 	SCOPED_ACTION(elevation::suppress);
 
 	if(!m_RegistrationThread)
-		m_RegistrationThread = os::thread(&os::thread::join, &FileSystemWatcher::Register, this);
+		m_RegistrationThread = os::thread(os::thread::mode::join, &FileSystemWatcher::Register, this);
 
 	if (got_focus)
 	{
@@ -149,9 +153,10 @@ bool FileSystemWatcher::Signaled() const
 
 void FileSystemWatcher::Register()
 {
-	seh_invoke_thread(m_ExceptionPtr, [this]
+	seh_try_thread(m_ExceptionPtr, [this]
 	{
-		try
+		cpp_try(
+		[&]
 		{
 			m_Notification = os::fs::FindFirstChangeNotification(m_Directory, m_WatchSubtree,
 				FILE_NOTIFY_CHANGE_FILE_NAME |
@@ -163,14 +168,13 @@ void FileSystemWatcher::Register()
 			if (!m_Notification)
 				return;
 
-			os::multi_waiter waiter;
-			waiter.add(m_Notification.native_handle());
-			waiter.add(m_Cancelled);
-			waiter.wait(os::multi_waiter::mode::any);
-			return;
-		}
-		CATCH_AND_SAVE_EXCEPTION_TO(m_ExceptionPtr)
-		m_IsRegularException = true;
+			(void)os::handle::wait_any({ m_Notification.native_handle(), m_Cancelled.native_handle() });
+		},
+		[&]
+		{
+			SAVE_EXCEPTION_TO(m_ExceptionPtr);
+			m_IsRegularException = true;
+		});
 	});
 }
 

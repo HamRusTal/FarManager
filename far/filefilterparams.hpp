@@ -58,16 +58,15 @@ enum
 
 enum enumFileFilterFlagsType: int
 {
-	FFFT_FIRST = 0, //обязан быть первым
-
-	FFFT_LEFTPANEL = FFFT_FIRST,
+	// Keep the order
+	FFFT_LEFTPANEL,
 	FFFT_RIGHTPANEL,
 	FFFT_FINDFILE,
 	FFFT_COPY,
 	FFFT_SELECT,
 	FFFT_CUSTOM,
 
-	FFFT_COUNT, //обязан быть последним
+	FFFT_COUNT
 };
 
 enum enumFileFilterFlags
@@ -80,12 +79,13 @@ enum enumFileFilterFlags
 
 enum enumFDateType
 {
+	// Keep the order
 	FDATE_MODIFIED,
 	FDATE_CREATED,
 	FDATE_OPENED,
 	FDATE_CHANGED,
 
-	FDATE_COUNT, // всегда последний !!!
+	FDATE_COUNT
 };
 
 class filter_dates
@@ -125,7 +125,7 @@ public:
 	void SetDate(bool Used, enumFDateType DateType, const filter_dates& Dates);
 	void SetSize(bool Used, string_view SizeAbove, string_view SizeBelow);
 	void SetHardLinks(bool Used, DWORD HardLinksAbove, DWORD HardLinksBelow);
-	void SetAttr(bool Used, DWORD AttrSet, DWORD AttrClear);
+	void SetAttr(bool Used, os::fs::attributes AttrSet, os::fs::attributes AttrClear);
 	void SetColors(const highlight::element& Colors);
 	void SetSortGroup(int SortGroup) { FHighlight.SortGroup = SortGroup; }
 	void SetContinueProcessing(bool bContinueProcessing) { FHighlight.bContinueProcessing = bContinueProcessing; }
@@ -140,13 +140,13 @@ public:
 	const string& GetSizeAbove() const {return FSize.Above.Size;}
 	const string& GetSizeBelow() const {return FSize.Below.Size;}
 	bool  GetHardLinks(DWORD *HardLinksAbove, DWORD *HardLinksBelow) const;
-	bool  GetAttr(DWORD *AttrSet, DWORD *AttrClear) const;
+	bool  GetAttr(os::fs::attributes* AttrSet, os::fs::attributes* AttrClear) const;
 	highlight::element GetColors() const;
 	wchar_t GetMarkChar() const;
 	int   GetSortGroup() const { return FHighlight.SortGroup; }
 	bool  GetContinueProcessing() const { return FHighlight.bContinueProcessing; }
 	DWORD GetFlags(enumFileFilterFlagsType FType) const { return FFlags[FType]; }
-	void RefreshMask() {if(FMask.Used) FMask.FilterMask.Set(FMask.strMask, FMF_SILENT);}
+	void RefreshMask() {if(FMask.Used) FMask.FilterMask.assign(FMask.strMask, FMF_SILENT);}
 
 
 	// Данный метод вызывается "снаружи" и служит для определения:
@@ -154,7 +154,7 @@ public:
 	// Возвращает true  - попадает;
 	//            false - не попадает.
 	bool FileInFilter(const FileListItem& Object, const FileList* Owner, os::chrono::time_point CurrentTime) const;
-	bool FileInFilter(const os::fs::find_data& Object, os::chrono::time_point CurrentTime, const string* FullName = nullptr) const; //Used in dirinfo, copy, findfile
+	bool FileInFilter(const os::fs::find_data& Object, os::chrono::time_point CurrentTime, string_view FullName = {}) const; //Used in dirinfo, copy, findfile
 	bool FileInFilter(const PluginPanelItem& Object, os::chrono::time_point CurrentTime) const;
 
 
@@ -197,8 +197,8 @@ private:
 	struct
 	{
 		bool Used{};
-		DWORD AttrSet{};
-		DWORD AttrClear{};
+		os::fs::attributes AttrSet{};
+		os::fs::attributes AttrClear{};
 	} FAttr;
 
 	struct

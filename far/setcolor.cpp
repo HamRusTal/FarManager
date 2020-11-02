@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "setcolor.hpp"
 
@@ -51,11 +54,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "manager.hpp"
 #include "global.hpp"
 #include "strmix.hpp"
+#include "lockscrn.hpp"
 
 // Platform:
 
 // Common:
 #include "common.hpp"
+#include "common/2d/point.hpp"
 #include "common/null_iterator.hpp"
 #include "common/scope_exit.hpp"
 
@@ -72,19 +77,22 @@ static void ChangeColor(PaletteColors PaletteIndex)
 		return;
 
 	Global->Opt->Palette.Set(PaletteIndex, { &NewColor, 1 });
-	Global->ScrBuf->Lock(); // отменяем всякую прорисовку
-	Global->CtrlObject->Cp()->LeftPanel()->Update(UPDATE_KEEP_SELECTION);
-	Global->CtrlObject->Cp()->LeftPanel()->Redraw();
-	Global->CtrlObject->Cp()->RightPanel()->Update(UPDATE_KEEP_SELECTION);
-	Global->CtrlObject->Cp()->RightPanel()->Redraw();
 
-	Global->WindowManager->ResizeAllWindows(); // рефрешим
-	Global->WindowManager->PluginCommit(); // коммитим.
+	{
+		SCOPED_ACTION(LockScreen);
 
-	if (Global->Opt->Clock)
-		ShowTimeInBackground();
+		Global->CtrlObject->Cp()->LeftPanel()->Update(UPDATE_KEEP_SELECTION);
+		Global->CtrlObject->Cp()->LeftPanel()->Redraw();
+		Global->CtrlObject->Cp()->RightPanel()->Update(UPDATE_KEEP_SELECTION);
+		Global->CtrlObject->Cp()->RightPanel()->Redraw();
 
-	Global->ScrBuf->Unlock(); // разрешаем прорисовку
+		Global->WindowManager->ResizeAllWindows(); // рефрешим
+		Global->WindowManager->PluginCommit(); // коммитим.
+
+		if (Global->Opt->Clock)
+			ShowTime();
+	}
+
 	Global->WindowManager->PluginCommit(); // коммитим.
 }
 
@@ -105,7 +113,7 @@ struct color_item
 	span<const color_item> SubColor;
 };
 
-static void SetItemColors(span<const color_item> const Items, COORD Position = {})
+static void SetItemColors(span<const color_item> const Items, point Position = {})
 {
 	const auto ItemsMenu = VMenu2::create(msg(lng::MSetColorItemsTitle), {});
 
@@ -114,7 +122,7 @@ static void SetItemColors(span<const color_item> const Items, COORD Position = {
 		ItemsMenu->AddItem(msg(i.LngId));
 	}
 
-	ItemsMenu->SetPosition({ Position.X += 10, Position.Y += 5, 0, 0 });
+	ItemsMenu->SetPosition({ Position.x += 10, Position.y += 5, 0, 0 });
 	ItemsMenu->SetMenuFlags(VMENU_WRAPMODE);
 	ItemsMenu->RunEx([&](int Msg, void *param)
 	{
@@ -616,7 +624,7 @@ static intptr_t GetColorDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void
 
 bool GetColorDialogInternal(FarColor& Color, bool const bCentered, const FarColor* const BaseColor)
 {
-	auto ColorDlg = MakeDialogItems(
+	auto ColorDlg = MakeDialogItems<cd_count>(
 	{
 		{ DI_DOUBLEBOX,   {{3,  1 }, {35, 14}}, DIF_NONE, msg(lng::MSetColorTitle), },
 		{ DI_SINGLEBOX,   {{5,  2 }, {18, 7 }}, DIF_NONE, msg(lng::MSetColorForeground), },

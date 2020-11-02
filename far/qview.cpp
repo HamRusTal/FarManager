@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "qview.hpp"
 
@@ -193,7 +196,7 @@ void QuickView::DisplayObject()
 		}
 
 		const auto bytes_suffix = upper(msg(lng::MListBytes));
-		const auto size2str = [&bytes_suffix](ULONGLONG Size)
+		const auto size2str = [&bytes_suffix](uint64_t const Size)
 		{
 			if (Global->Opt->ShowBytes)
 			{
@@ -295,7 +298,7 @@ bool QuickView::ProcessKey(const Manager::Key& Key)
 		return true;
 	}
 
-	if (LocalKey==KEY_F3 || LocalKey==KEY_NUMPAD5 || LocalKey == KEY_SHIFTNUMPAD5)
+	if (any_of(LocalKey, KEY_F3, KEY_NUMPAD5, KEY_SHIFTNUMPAD5))
 	{
 		const auto AnotherPanel = Parent()->GetAnotherPanel(this);
 
@@ -305,7 +308,7 @@ bool QuickView::ProcessKey(const Manager::Key& Key)
 		return true;
 	}
 
-	if (LocalKey==KEY_ADD || LocalKey==KEY_SUBTRACT)
+	if (any_of(LocalKey, KEY_ADD, KEY_SUBTRACT))
 	{
 		const auto AnotherPanel = Parent()->GetAnotherPanel(this);
 
@@ -319,15 +322,13 @@ bool QuickView::ProcessKey(const Manager::Key& Key)
 	{
 		const auto ret = QView->ProcessKey(Manager::Key(LocalKey));
 
-		if (LocalKey == KEY_F2 || LocalKey == KEY_SHIFTF2
-		 || LocalKey == KEY_F4 || LocalKey == KEY_SHIFTF4
-		 || LocalKey == KEY_F8 || LocalKey == KEY_SHIFTF8)
+		if (any_of(LocalKey, KEY_F2, KEY_SHIFTF2, KEY_F4, KEY_SHIFTF4, KEY_F8, KEY_SHIFTF8))
 		{
 			DynamicUpdateKeyBar();
 			Parent()->GetKeybar().Redraw();
 		}
 
-		if (LocalKey == KEY_F7 || LocalKey == KEY_SHIFTF7)
+		if (any_of(LocalKey, KEY_F7, KEY_SHIFTF7))
 		{
 			//long long Pos;
 			//int Length;
@@ -396,7 +397,7 @@ void QuickView::ShowFile(string_view const FileName, const UserDataItem* const U
 	if (UserData)
 		CurUserData = *UserData;
 
-	size_t pos = strCurFileName.rfind(L'.');
+	const auto pos = strCurFileName.rfind(L'.');
 	if (pos != string::npos)
 	{
 		string strValue;
@@ -413,7 +414,7 @@ void QuickView::ShowFile(string_view const FileName, const UserDataItem* const U
 		// Не показывать тип файла для каталогов в "Быстром просмотре"
 		strCurFileType.clear();
 
-		time_check TimeCheck(time_check::mode::delayed, GetRedrawTimeout());
+		const time_check TimeCheck;
 
 		const auto DirInfoCallback = [&](string_view const Name, unsigned long long const ItemsCount, unsigned long long const Size)
 		{
@@ -456,7 +457,7 @@ void QuickView::ShowFile(string_view const FileName, const UserDataItem* const U
 			OldWrapType = QView->GetWrapType();
 			QView->SetWrapMode(LastWrapMode);
 			QView->SetWrapType(LastWrapType);
-			QView->OpenFile(strCurFileName,FALSE);
+			QView->OpenFile(strCurFileName, false);
 		}
 	}
 
@@ -502,9 +503,9 @@ void QuickView::QViewDelTempName()
 			QView=nullptr;
 		}
 
-		os::fs::set_file_attributes(strCurFileName, FILE_ATTRIBUTE_ARCHIVE);
-		os::fs::delete_file(strCurFileName);  //BUGBUG
-		string TempDirectoryName = strCurFileName;
+		(void)os::fs::set_file_attributes(strCurFileName, FILE_ATTRIBUTE_ARCHIVE); // BUGBUG
+		(void)os::fs::delete_file(strCurFileName);  //BUGBUG
+		string_view TempDirectoryName = strCurFileName;
 		CutToSlash(TempDirectoryName);
 		// BUGBUG check result
 		(void)os::fs::remove_directory(TempDirectoryName);
@@ -522,16 +523,13 @@ void QuickView::PrintText(string_view const Str) const
 }
 
 
-bool QuickView::UpdateIfChanged(bool Idle)
+void QuickView::UpdateIfChanged(bool Idle)
 {
-	if (IsVisible() && !strCurFileName.empty() && m_DirectoryScanStatus == scan_status::real_fail)
-	{
-		const auto strViewName = strCurFileName;
-		ShowFile(strViewName, &CurUserData, m_TemporaryFile, nullptr);
-		return true;
-	}
+	if (!IsVisible() || strCurFileName.empty() || m_DirectoryScanStatus != scan_status::real_fail)
+		return;
 
-	return false;
+	const auto strViewName = strCurFileName;
+	ShowFile(strViewName, &CurUserData, m_TemporaryFile, nullptr);
 }
 
 void QuickView::RefreshTitle()

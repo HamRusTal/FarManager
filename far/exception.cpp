@@ -28,37 +28,34 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "exception.hpp"
 
 // Internal:
 #include "imports.hpp"
 #include "encoding.hpp"
-#include "tracer.hpp"
 
 // Platform:
 
 // Common:
+#include "common/string_utils.hpp"
 
 // External:
 #include "format.hpp"
 
 //----------------------------------------------------------------------------
 
-
 error_state error_state::fetch()
 {
-	error_state State;
-	State.Errno = errno;
-	State.Win32Error = GetLastError();
-	State.NtError = imports.RtlGetLastNtStatus();
-	State.m_Engaged = true;
-	return State;
-}
-
-error_state::operator bool() const
-{
-	return m_Engaged;
+	return
+	{
+		errno,
+		GetLastError(),
+		imports.RtlGetLastNtStatus(),
+	};
 }
 
 string error_state::ErrnoStr() const
@@ -76,14 +73,23 @@ string error_state::NtErrorStr() const
 	return os::GetErrorString(true, NtError);
 }
 
+std::array<string, 3> error_state::format_errors() const
+{
+	return
+	{
+		os::format_system_error(Errno, ErrnoStr()),
+		os::format_system_error(Win32Error, Win32ErrorStr()),
+		os::format_system_error(NtError, NtErrorStr())
+	};
+}
 
 namespace detail
 {
-	far_base_exception::far_base_exception(const char* const Function, const char* const File, int const Line, string_view const Message):
-		m_Function(encoding::ansi::get_chars(Function)),
-		m_Location(format(FSTR(L"{0}:{1}"), encoding::ansi::get_chars(File), Line)),
-		m_FullMessage(format(FSTR(L"{0} (at {1}, {2})"), Message, m_Function, m_Location)),
-		m_ErrorState(error_state::fetch(), Message)
+	far_base_exception::far_base_exception(string_view const Message, const char* const Function, string_view const File, int const Line):
+		error_state_ex(fetch(), Message),
+		m_Function(Function),
+		m_Location(format(FSTR(L"{0}:{1}"), File, Line)),
+		m_FullMessage(format(FSTR(L"{0} (at {1}, {2})"), Message, encoding::utf8::get_chars(m_Function), m_Location))
 	{
 	}
 
@@ -92,53 +98,21 @@ namespace detail
 		return encoding::utf8::get_bytes(full_message());
 	}
 
-	attach_debugger::attach_debugger()
+	break_into_debugger::break_into_debugger()
 	{
-		if (IsDebuggerPresent())
-			DebugBreak();
-	}
-
-	exception_context::exception_context(DWORD const Code, const EXCEPTION_POINTERS& Pointers, os::handle&& ThreadHandle, DWORD const ThreadId):
-		m_Code(Code),
-		m_Pointers(Pointers),
-		m_ThreadHandle(std::move(ThreadHandle)),
-		m_ThreadId(ThreadId)
-	{
-	}
-
-	seh_exception_context::~seh_exception_context()
-	{
-		if (m_ResumeThread)
-			ResumeThread(thread_handle());
+		os::debug::breakpoint(false);
 	}
 }
 
-far_wrapper_exception::far_wrapper_exception(const char* const Function, const char* const File, int const Line):
-	far_exception(Function, File, Line, L"->"sv),
-	m_ThreadHandle(std::make_shared<os::handle>(os::OpenCurrentThread())),
-	m_Stack(tracer::get(tracer::get_pointers(), m_ThreadHandle->native_handle()))
+string error_state_ex::format_error() const
 {
-}
+	auto Str = What;
+	if (!Str.empty())
+		append(Str, L": "sv);
 
-seh_exception::seh_exception(DWORD const Code, EXCEPTION_POINTERS& Pointers, os::handle&& ThreadHandle, DWORD const ThreadId, bool const ResumeThread):
-	m_Context(std::make_shared<detail::seh_exception_context>(Code, Pointers, std::move(ThreadHandle), ThreadId, ResumeThread))
-{
-}
+	constexpr auto UseNtMessages = false;
 
-std::exception_ptr wrap_currrent_exception()
-{
-	try
-	{
-		std::throw_with_nested(MAKE_EXCEPTION(far_wrapper_exception));
-	}
-	catch (...)
-	{
-		return std::current_exception();
-	}
-}
-
-void rethrow_if(std::exception_ptr& Ptr)
-{
-	if (Ptr)
-		std::rethrow_exception(std::exchange(Ptr, {}));
+	return Str + os::format_system_error(
+		UseNtMessages? NtError : Win32Error,
+		UseNtMessages? NtErrorStr() : Win32ErrorStr());
 }

@@ -52,10 +52,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 struct FAR_CHAR_INFO;
 struct FarColor;
 enum class lng : int;
-extern WCHAR BoxSymbols[];
-extern COORD InitSize, CurSize;
-extern SHORT ScrX,ScrY;
-extern SHORT PrevScrX,PrevScrY;
+extern wchar_t BoxSymbols[];
+extern point InitSize, CurSize;
+extern int ScrX, ScrY;
+extern int PrevScrX,PrevScrY;
 
 struct console_mode
 {
@@ -132,7 +132,6 @@ enum BOX_DEF_SYMBOLS
 };
 
 void ShowTime();
-void ShowTimeInBackground();
 
 void InitConsole();
 void CloseConsole();
@@ -152,12 +151,12 @@ int WhereX();
 int WhereY();
 void MoveCursor(point Point);
 point GetCursorPos();
-void SetCursorType(bool Visible, DWORD Size);
+void SetCursorType(bool Visible, size_t Size);
 void SetInitialCursorType();
-void GetCursorType(bool& Visible, DWORD& Size);
+void GetCursorType(bool& Visible, size_t& Size);
 void MoveRealCursor(int X,int Y);
-void GetRealCursorPos(SHORT& X,SHORT& Y);
 void ScrollScreen(int Count);
+bool DoWeReallyHaveToScroll(short Rows);
 
 void Text(point Where, const FarColor& Color, string_view Str);
 
@@ -168,7 +167,7 @@ void Text(lng MsgId);
 
 void VText(string_view Str);
 
-void HiText(const string& Str,const FarColor& HiColor,int isVertText=0);
+void HiText(string_view Str,const FarColor& HiColor, bool isVertText = false);
 void PutText(rectangle Where, const FAR_CHAR_INFO* Src);
 void GetText(rectangle Where, matrix<FAR_CHAR_INFO>& Dest);
 
@@ -186,9 +185,9 @@ void ClearScreen(const FarColor& Color);
 const FarColor& GetColor();
 
 void Box(rectangle Where, const FarColor& Color,int Type);
-bool ScrollBarRequired(UINT Length, unsigned long long ItemsCount);
-bool ScrollBarEx(UINT X1, UINT Y1, UINT Length, unsigned long long TopItem, unsigned long long ItemsCount);
-bool ScrollBarEx3(UINT X1, UINT Y1, UINT Length, unsigned long long Start, unsigned long long End, unsigned long long Size);
+bool ScrollBarRequired(size_t Length, unsigned long long ItemsCount);
+bool ScrollBar(size_t X1, size_t Y1, size_t Length, unsigned long long TopItem, unsigned long long ItemsCount);
+bool ScrollBarEx(size_t X1, size_t Y1, size_t Length, unsigned long long Start, unsigned long long End, unsigned long long Size);
 
 enum class line_type
 {
@@ -223,16 +222,23 @@ string make_progressbar(size_t Size, size_t Percent, bool ShowPercent, bool Prop
 void fix_coordinates(rectangle& Where);
 
 size_t HiStrlen(string_view Str);
-int HiFindRealPos(const string& Str, int Pos, bool ShowAmp);
-int HiFindNextVisualPos(const string& Str, int Pos, int Direct);
-string HiText2Str(const string& Str);
+size_t HiFindRealPos(string_view Str, size_t Pos);
+string HiText2Str(string_view Str, size_t* HotkeyVisualPos = {});
+bool HiTextHotkey(string_view Str, wchar_t& Hotkey, size_t* HotkeyVisualPos = {});
 void RemoveHighlights(string& Str);
+
+namespace inplace
+{
+	void escape_ampersands(string& Str);
+}
+
+string escape_ampersands(string_view Str);
 
 bool IsConsoleFullscreen();
 bool IsConsoleSizeChanged();
 
-void SaveNonMaximisedBufferSize(const COORD& Size);
-COORD GetNonMaximisedBufferSize();
+void SaveNonMaximisedBufferSize(point const& Size);
+point GetNonMaximisedBufferSize();
 
 void AdjustConsoleScreenBufferSize();
 
@@ -241,8 +247,10 @@ class consoleicons: public singleton<consoleicons>
 	IMPLEMENTS_SINGLETON;
 
 public:
-	void setFarIcons();
-	void restorePreviousIcons();
+	void set_icon();
+	void restore_icon();
+
+	size_t size() const;
 
 private:
 	consoleicons() = default;
@@ -250,15 +258,11 @@ private:
 	struct icon
 	{
 		bool IsBig;
-		HICON Icon;
-		HICON PreviousIcon;
-		bool Changed;
+		std::optional<HICON> InitialIcon;
 	};
 
 	icon m_Large{true};
 	icon m_Small{false};
-
-	bool m_Loaded{};
 };
 
 bool ConsoleYesNo(string_view Message, bool Default);

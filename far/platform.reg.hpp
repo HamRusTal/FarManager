@@ -85,10 +85,12 @@ namespace os::reg
 		[[nodiscard]]
 		bool get(string_view Name, unsigned long long& Value) const;
 
-		template<class T, REQUIRES(is_one_of_v<T, string, unsigned int, unsigned long long>)>
+		template<class T>
 		[[nodiscard]]
 		bool get(string_view SubKey, string_view Name, T& Value, REGSAM Sam = 0) const
 		{
+			static_assert(is_one_of_v<T, string, unsigned int, unsigned long long>);
+
 			const auto NewKey = open(*this, SubKey, KEY_QUERY_VALUE | Sam);
 			if (!NewKey)
 				return false;
@@ -104,7 +106,7 @@ namespace os::reg
 
 		struct hkey_deleter
 		{
-			void operator()(HKEY Key) const;
+			void operator()(HKEY Key) const noexcept;
 		};
 
 		std::unique_ptr<std::remove_pointer_t<HKEY>, hkey_deleter> m_Key;
@@ -136,7 +138,7 @@ namespace os::reg
 		const key* m_Key{};
 	};
 
-	class enum_key: noncopyable, public enumerator<enum_key, string>
+	class [[nodiscard]] enum_key: noncopyable, public enumerator<enum_key, string>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_key);
 
@@ -153,7 +155,7 @@ namespace os::reg
 		mutable size_t m_Index{};
 	};
 
-	class enum_value: noncopyable, public enumerator<enum_value, value>
+	class [[nodiscard]] enum_value: noncopyable, public enumerator<enum_value, value>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_value);
 

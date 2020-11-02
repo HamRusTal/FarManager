@@ -59,7 +59,7 @@ namespace highlight
 	class element;
 }
 
-using content_data_ptr = std::unique_ptr<std::unordered_map<string, string>>;
+using content_data = std::unordered_map<string, string>;
 
 class FileListItem: public os::fs::find_data
 {
@@ -83,7 +83,7 @@ public:
 	const string& Owner(const FileList* Owner) const;
 
 	bool IsContentDataRead() const;
-	const content_data_ptr& ContentData(const FileList* Owner) const;
+	const std::unique_ptr<content_data>& ContentData(const FileList* Owner) const;
 
 	const string& AlternateOrNormal(bool Alternate) const;
 
@@ -119,7 +119,7 @@ private:
 	mutable DWORD m_NumberOfLinks = values::uninitialised(m_NumberOfLinks);
 	mutable DWORD m_NumberOfStreams = values::uninitialised(m_NumberOfStreams);
 	mutable unsigned long long m_StreamsSize = values::uninitialised(m_StreamsSize);
-	mutable content_data_ptr m_ContentData;
+	mutable std::unique_ptr<content_data> m_ContentData;
 };
 
 enum OPENFILEPLUGINTYPE: int;
@@ -140,34 +140,35 @@ public:
 	long long VMProcess(int OpCode, void* vParam = nullptr, long long iParam = 0) override;
 	void MoveToMouse(const MOUSE_EVENT_RECORD *MouseEvent) override;
 	void Update(int Mode) override;
-	bool UpdateIfChanged(bool Idle) override;
+	void UpdateIfChanged(bool Idle) override;
 	void UpdateIfRequired() override;
 	bool SendKeyToPlugin(DWORD Key, bool Pred = false) override;
 	void StartFSWatcher(bool got_focus = false, bool check_time = true) override;
 	void StopFSWatcher() override;
 	void SortFileList(bool KeepPosition) override;
 	void SetViewMode(int ViewMode) override;
-	void SetSortMode(panel_sort SortMode, bool KeepOrder = false) override;
-	void SetCustomSortMode(int SortMode, sort_order Order = SO_AUTO, bool InvertByDefault = false) override;
+	void SetSortMode(panel_sort Mode, bool KeepOrder = false) override;
+	void SetCustomSortMode(panel_sort Mode, sort_order Order, bool InvertByDefault) override;
 	void ChangeSortOrder(bool Reverse) override;
 	void ChangeDirectoriesFirst(bool Mode) override;
 	void OnSortingChange() override;
-	bool SetCurDir(const string& NewDir, bool ClosePanel, bool IsUpdated = true) override;
+	bool SetCurDir(string_view NewDir, bool ClosePanel, bool IsUpdated = true, bool Silent = false) override;
 	panel_sort GetPrevSortMode() const override;
 	bool GetPrevSortOrder() const override;
 	int GetPrevViewMode() const override;
 	bool GetPrevDirectoriesFirst() const override;
-	bool GetFileName(string &strName, int Pos, DWORD &FileAttr) const override;
+	bool GetFileName(string &strName, int Pos, os::fs::attributes& FileAttr) const override;
+	const std::unordered_set<string>* GetFilteredExtensions() const override;
 	int GetCurrentPos() const override;
-	bool FindPartName(const string& Name, int Next, int Direct = 1) override;
+	bool FindPartName(string_view Name, int Next, int Direct = 1) override;
 	bool GetPlainString(string& Dest, int ListPos) const override;
 	bool GoToFile(long idxItem) override;
 	bool GoToFile(string_view Name, bool OnlyPartName = false) override;
 	long FindFile(string_view Name, bool OnlyPartName = false) override;
-	bool IsSelected(const string& Name) override;
+	bool IsSelected(string_view Name) override;
 	bool IsSelected(size_t idxItem) override;
-	long FindFirst(const string& Name) override;
-	long FindNext(int StartPos, const string& Name) override;
+	long FindFirst(string_view Name) override;
+	long FindNext(int StartPos, string_view Name) override;
 	void UpdateViewPanel() override;
 	void CompareDir() override;
 	void ClearSelection() override;
@@ -187,9 +188,9 @@ public:
 	int GetColumnsCount() const override;
 	void SetReturnCurrentFile(bool Mode) override;
 	void GetOpenPanelInfo(OpenPanelInfo *Info) const override;
-	void SetPluginMode(std::unique_ptr<plugin_panel>&& hPlugin, const string& PluginFile, bool SendOnFocus = false) override;
+	void SetPluginMode(std::unique_ptr<plugin_panel>&& PluginPanel, string_view PluginFile, bool SendOnFocus = false) override;
 	size_t GetSelCount() const override;
-	bool GetSelName(string *strName, string *strShortName = nullptr, os::fs::find_data *fde = nullptr) override;
+	bool GetSelName(string *strName, string *strShortName = nullptr, os::fs::find_data *fd = nullptr) override;
 	void ClearLastGetSelection() override;
 	plugin_panel* GetPluginHandle() const override;
 	size_t GetRealSelCount() const override;
@@ -198,7 +199,7 @@ public:
 	void RefreshTitle() override;
 	size_t GetFileCount() const override;
 	void UpdateKeyBar() override;
-	void IfGoHome(wchar_t Drive) override;
+	void GoHome(string_view Drive) override;
 	bool GetSelectedFirstMode() const override;
 
 	const FileListItem* GetItem(size_t Index) const;
@@ -220,8 +221,8 @@ public:
 	string GetPluginPrefix() const;
 
 	size_t FileListToPluginItem2(const FileListItem& fi, FarGetPluginPanelItem* pi) const;
-	static bool FileNameToPluginItem(const string& Name, class PluginPanelItemHolder& pi);
-	void FileListToPluginItem(const FileListItem& fi, PluginPanelItemHolder& pi) const;
+	static bool FileNameToPluginItem(string_view Name, class PluginPanelItemHolder& pi);
+	void FileListToPluginItem(const FileListItem& fi, PluginPanelItemHolder& Holder) const;
 	static bool IsModeFullScreen(int Mode);
 
 	struct PrevDataItem;
@@ -242,7 +243,7 @@ private:
 	bool HardlinksSupported() const;
 	bool StreamsSupported() const;
 	const string& GetComputerName() const;
-	content_data_ptr GetContentData(const string& Item) const;
+	std::unique_ptr<content_data> GetContentData(const string& Item) const;
 	void ApplySortMode(panel_sort Mode);
 	void ToBegin();
 	void ToEnd();
@@ -256,41 +257,41 @@ private:
 	FarColor GetShowColor(int Position, bool FileColor = true) const;
 	void ShowSelectedSize();
 	void ShowTotalSize(const OpenPanelInfo &Info);
-	bool ConvertName(string_view SrcName, string &strDest, int MaxLength, unsigned long long RightAlign, int ShowStatus, DWORD dwFileAttr) const;
+	bool ConvertName(string_view SrcName, string &strDest, int MaxLength, unsigned long long RightAlign, int ShowStatus, os::fs::attributes FileAttr) const;
 	void Select(FileListItem& SelItem, bool Selection);
 	long SelectFiles(int Mode, string_view Mask = {});
 	void ProcessEnter(bool EnableExec, bool SeparateWindow, bool EnableAssoc, bool RunAs, OPENFILEPLUGINTYPE Type);
 	// ChangeDir возвращает false, eсли не смогла выставить заданный путь
-	bool ChangeDir(string_view NewDir, bool IsParent, bool ResolvePath, bool IsUpdated, const UserDataItem* DataItem, OPENFILEPLUGINTYPE Type);
+	bool ChangeDir(string_view NewDir, bool IsParent, bool ResolvePath, bool IsUpdated, const UserDataItem* DataItem, OPENFILEPLUGINTYPE OfpType, bool Silent);
 	bool ChangeDir(string_view NewDir, bool IsParent);
 	void CountDirSize(bool IsRealNames);
 	void ReadFileNames(int KeepSelection, int UpdateEvenIfPanelInvisible, int DrawMessage);
 	void UpdatePlugin(int KeepSelection, int UpdateEvenIfPanelInvisible);
 	void MoveSelection(list_data& From, list_data& To);
-	void PushPlugin(std::unique_ptr<plugin_panel>&& hPlugin, const string& HostFile);
+	void PushPlugin(std::unique_ptr<plugin_panel>&& hPlugin, string_view HostFile);
 	bool PopPlugin(int EnableRestoreViewMode);
-	void PopPrevData(const string& DefaultName, bool Closed, bool UsePrev, bool Position, bool SetDirectorySuccess);
-	void CopyFiles(bool bMoved = false);
+	void PopPrevData(string_view DefaultName, bool Closed, bool UsePrev, bool Position, bool SetDirectorySuccess);
+	void CopyFiles(bool bMoved);
 	void CopyNames(bool FillPathName, bool UNC);
 	void SelectSortMode();
 	bool ApplyCommand();
 	void DescribeFiles();
 
 	plugin_item_list CreatePluginItemList();
-	std::unique_ptr<plugin_panel> OpenPluginForFile(const string& FileName, DWORD FileAttr, OPENFILEPLUGINTYPE Type, bool* StopProcessing = nullptr);
+	std::unique_ptr<plugin_panel> OpenPluginForFile(const string& FileName, os::fs::attributes FileAttr, OPENFILEPLUGINTYPE Type, bool* StopProcessing = nullptr);
 	void PreparePanelView();
-	void PrepareColumnWidths(std::vector<column>& Columns, bool FullScreen);
+	void PrepareColumnWidths(std::vector<column>& Columns, bool FullScreen) const;
 	void PrepareStripes(const std::vector<column>& Columns);
 	void PrepareViewSettings(int ViewMode);
 	void PluginDelete();
-	void PutDizToPlugin(FileList *DestPanel, const std::vector<PluginPanelItem>& ItemList, bool Delete, bool Move, DizList *SrcDiz);
+	void PutDizToPlugin(FileList *DestPanel, const std::vector<PluginPanelItem>& ItemList, bool Delete, bool Move, DizList *SrcDiz) const;
 	void PluginGetFiles(const string& DestPath, bool Move);
 	void PluginToPluginFiles(bool Move);
 	void PluginHostGetFiles();
 	void PluginPutFilesToNew();
 	int PluginPutFilesToAnother(bool Move, panel_ptr AnotherPanel);
 	void PluginClearSelection(const std::vector<PluginPanelItem>& ItemList);
-	void ProcessCopyKeys(int Key);
+	void ProcessCopyKeys(unsigned Key);
 	void ReadSortGroups(bool UpdateFilterCurrentTime = true);
 	int ProcessOneHostFile(const FileListItem* Item);
 	void HighlightBorder(int Level, int ListPos) const;
@@ -303,7 +304,7 @@ private:
 	};
 	void MoveSelection(direction Direction);
 
-	static void FillParentPoint(FileListItem& Item, size_t CurFilePos);
+	static void FillParentPoint(FileListItem& Item);
 
 	std::unique_ptr<FileFilter> m_Filter;
 	DizList Diz;
@@ -312,7 +313,7 @@ private:
 		 Открывающий и закрывающий символ, которые используются для показа
 		 имени, которое не помещается в панели. По умолчанию - фигурные скобки.
 	*/
-	wchar_t openBracket[2]{}, closeBracket[2]{};
+	wchar_t openBracket[2]{L'{'}, closeBracket[2]{L'}'};
 
 	string strOriginalCurDir;
 	string strPluginDizName;
@@ -399,6 +400,7 @@ private:
 	mutable std::vector<const wchar_t*> m_ContentValues;
 	std::vector<Plugin*> m_ContentPlugins;
 	int m_InsideGetFindData{};
+	std::unordered_set<string> m_FilteredExtensions;
 	std::weak_ptr<PluginsListItem> GetPluginItem() const;
 };
 

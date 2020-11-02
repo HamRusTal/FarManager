@@ -32,6 +32,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "function_traits.hpp"
+#include "preprocessor.hpp"
+
 //----------------------------------------------------------------------------
 
 template<typename T>
@@ -43,21 +46,29 @@ protected:
 	using base_type = T;
 };
 
-template<typename container>
-void reserve_exp_noshrink(container& Container, size_t Capacity)
+inline size_t grow_exp_noshrink(size_t const Current, size_t const Desired)
 {
 	// Unlike vector, string is allowed to shrink (another splendid design decision from the committee):
 	// "Calling reserve() with a res_arg argument less than capacity() is in effect a non-binding shrink request." (21.4.4 basic_string capacity)
 	// gcc decided to go mental and made that a _binding_ shrink request.
-	const auto CurrentCapacity = Container.capacity();
-	if (Capacity <= CurrentCapacity)
-		return;
+	if (Desired < Current)
+		return Current;
 
 	// For vector reserve typically allocates exactly the requested amount instead of exponential growth.
 	// This can be really bad if called in a loop.
-	Capacity = std::max(static_cast<size_t>(CurrentCapacity * 1.5), Capacity);
+	return std::max(Current + Current / 2, Desired);
+}
 
-	Container.reserve(Capacity);
+template<typename container>
+void reserve_exp_noshrink(container& Container, size_t const DesiredCapacity)
+{
+	Container.reserve(grow_exp_noshrink(Container.capacity(), DesiredCapacity));
+}
+
+template<typename container>
+void resize_exp_noshrink(container& Container, size_t const DesiredSize)
+{
+	Container.resize(grow_exp_noshrink(Container.size(), DesiredSize), {});
 }
 
 
@@ -101,6 +112,15 @@ void hash_combine(size_t& Seed, const type& Value)
 
 	Seed ^= make_hash(Value) + MagicValue + (Seed << 6) + (Seed >> 2);
 }
+
+template<typename... args>
+size_t hash_combine_all(const args&... Args)
+{
+	size_t Seed = 0;
+	(..., hash_combine(Seed, Args));
+	return Seed;
+}
+
 
 template<typename iterator>
 [[nodiscard]]
@@ -192,12 +212,12 @@ namespace flags
 }
 
 [[nodiscard]]
-constexpr size_t aligned_size(size_t Size, size_t Alignment = MEMORY_ALLOCATION_ALIGNMENT)
+constexpr size_t aligned_size(size_t Size, size_t Alignment = alignof(std::max_align_t))
 {
 	return (Size + (Alignment - 1)) & ~(Alignment - 1);
 }
 
-template<typename T, int Alignment = MEMORY_ALLOCATION_ALIGNMENT>
+template<typename T, size_t Alignment = alignof(std::max_align_t)>
 [[nodiscard]]
 constexpr auto aligned_sizeof()
 {
@@ -229,16 +249,45 @@ struct [[nodiscard]] overload: args...
 template<typename... args> overload(args&&...) -> overload<args...>;
 
 
+namespace detail
+{
+	template<typename T>
+	using is_void_or_trivially_copyable = std::disjunction<std::is_void<T>, std::is_trivially_copyable<T>>;
+}
+
 template<typename src_type, typename dst_type>
-void copy_memory(const src_type* Source, dst_type* Dest, size_t const Size)
+void copy_memory(const src_type* Source, dst_type* Destination, size_t const Size) noexcept
 {
 	static_assert(std::conjunction_v<
-		std::disjunction<std::is_void<src_type>, std::is_trivially_copyable<src_type>>,
-		std::disjunction<std::is_void<dst_type>, std::is_trivially_copyable<dst_type>>
+		detail::is_void_or_trivially_copyable<src_type>,
+		detail::is_void_or_trivially_copyable<dst_type>
 	>);
 
 	if (Size) // paranoid gcc null checks are paranoid
-		std::memcpy(Dest, Source, Size);
+		std::memmove(Destination, Source, Size);
+}
+
+template<typename T>
+decltype(auto) view_as(void const* const BaseAddress, size_t const Offset = 0)
+{
+	static_assert(std::is_trivially_copyable_v<T>);
+
+	const auto Ptr = static_cast<void const*>(static_cast<char const*>(BaseAddress) + Offset);
+
+	if constexpr (std::is_pointer_v<T>)
+	{
+		return static_cast<T>(Ptr);
+	}
+	else
+	{
+		return *static_cast<T const*>(Ptr);
+	}
+}
+
+template<typename T>
+decltype(auto) view_as(unsigned long long const Address)
+{
+	return view_as<T>(reinterpret_cast<void const*>(Address));
 }
 
 #endif // UTILITY_HPP_D8E934C7_BF30_4CEB_B80C_6E508DF7A1BC

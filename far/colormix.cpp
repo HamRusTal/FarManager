@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "colormix.hpp"
 
@@ -105,14 +108,10 @@ namespace colors
 
 	size_t color_hash(const FarColor& Value)
 	{
-		size_t Seed = 0;
-
-		hash_combine(Seed, Value.Flags);
-		hash_combine(Seed, Value.BackgroundColor);
-		hash_combine(Seed, Value.ForegroundColor);
-		hash_combine(Seed, Value.Reserved);
-
-		return Seed;
+		return hash_combine_all(
+			Value.Flags,
+			Value.BackgroundColor,
+			Value.ForegroundColor);
 	}
 
 	FarColor merge(const FarColor& Bottom, const FarColor& Top)
@@ -139,29 +138,31 @@ namespace colors
 
 WORD FarColorToConsoleColor(const FarColor& Color)
 {
-	static COLORREF LastTrueColors[2] = {};
-	static FARCOLORFLAGS LastFlags = 0;
+	static FarColor LastColor{};
 	static WORD Result = 0;
 
-	if (Color.BackgroundColor == LastTrueColors[0] && Color.ForegroundColor == LastTrueColors[1] && (Color.Flags & FCF_4BITMASK) == (LastFlags & FCF_4BITMASK))
+	if (Color.BackgroundColor == LastColor.BackgroundColor && Color.ForegroundColor == LastColor.ForegroundColor && (Color.Flags & FCF_4BITMASK) == (LastColor.Flags & FCF_4BITMASK))
 		return Result;
 
-	LastFlags = Color.Flags;
+	LastColor.Flags = Color.Flags;
 
 	static std::array<BYTE, 2> IndexColors{};
 
 	const struct
 	{
-		const COLORREF Color;
-		const rgba RGBA;
-		FARCOLORFLAGS Flags;
-		COLORREF* LastColor;
-		BYTE* IndexColor;
+		union
+		{
+			const COLORREF Color;
+			const rgba RGBA;
+		};
+		const FARCOLORFLAGS Flags;
+		COLORREF* const LastColor;
+		BYTE* const IndexColor;
 	}
-	data[] =
+	data[]
 	{
-		{Color.BackgroundColor, Color.BackgroundRGBA, FCF_BG_4BIT, &LastTrueColors[0], &IndexColors[0]},
-		{Color.ForegroundColor, Color.ForegroundRGBA, FCF_FG_4BIT, &LastTrueColors[1], &IndexColors[1]}
+		{ { Color.BackgroundColor }, FCF_BG_4BIT, &LastColor.BackgroundColor, &IndexColors[0] },
+		{ { Color.ForegroundColor }, FCF_FG_4BIT, &LastColor.ForegroundColor, &IndexColors[1] }
 	};
 
 	enum console_mask
@@ -178,6 +179,7 @@ WORD FarColorToConsoleColor(const FarColor& Color)
 			continue;
 
 		*i.LastColor = i.Color;
+
 		if(Color.Flags & i.Flags)
 		{
 			*i.IndexColor = i.Color & ConsoleMask;
@@ -189,7 +191,7 @@ WORD FarColorToConsoleColor(const FarColor& Color)
 		int B = i.RGBA.b;
 
 		// special case, silver color:
-		if (in_range(160, R, 223) && in_range(160, G, 223) && in_range(160, B, 223))
+		if (in_closed_range(160, R, 223) && in_closed_range(160, G, 223) && in_closed_range(160, B, 223))
 		{
 			*i.IndexColor = RedMask | GreenMask | BlueMask;
 			continue;
@@ -199,15 +201,15 @@ WORD FarColorToConsoleColor(const FarColor& Color)
 		size_t IntenseCount = 0;
 		for (auto& component : p)
 		{
-			if(in_range(0, *component, 63))
+			if(in_closed_range(0, *component, 63))
 			{
 				*component = 0;
 			}
-			else if(in_range(64, *component, 191))
+			else if(in_closed_range(64, *component, 191))
 			{
 				*component = 128;
 			}
-			else if(in_range(192, *component, 255))
+			else if(in_closed_range(192, *component, 255))
 			{
 				*component = 255;
 				++IntenseCount;
@@ -253,34 +255,39 @@ FarColor ConsoleColorToFarColor(WORD Color)
 	return NewColor;
 }
 
-COLORREF ConsoleIndexToTrueColor(int Index)
+static auto console_palette()
 {
 	std::array<COLORREF, 16> Palette;
 	if (!console.GetPalette(Palette))
 	{
 		Palette =
 		{
-			//  BBGGRR
-			0x00000000, // black
-			0x00800000, // blue
-			0x00008000, // green
-			0x00808000, // cyan
-			0x00000080, // red
-			0x00800080, // magenta
-			0x00008080, // yellow
-			0x00C0C0C0, // white
-			0x00808080, // bright black
-			0x00FF0000, // bright blue
-			0x0000FF00, // bright green
-			0x00FFFF00, // bright cyan
-			0x000000FF, // bright red
-			0x00FF00FF, // bright magenta
-			0x0000FFFF, // bright yellow
-			0x00FFFFFF  // white
+			RGB(  0,   0,   0), // black
+			RGB(  0,   0, 128), // blue
+			RGB(  0, 128,   0), // green
+			RGB(  0, 128, 128), // cyan
+			RGB(128,   0,   0), // red
+			RGB(128,   0, 128), // magenta
+			RGB(128, 128,   0), // yellow
+			RGB(192, 192, 192), // white
+
+			RGB(128, 128, 128), // bright black
+			RGB(  0,   0, 255), // bright blue
+			RGB(  0, 255,   0), // bright green
+			RGB(  0, 255, 255), // bright cyan
+			RGB(255,   0,   0), // bright red
+			RGB(255,   0, 255), // bright magenta
+			RGB(255, 255,   0), // bright yellow
+			RGB(255, 255, 255)  // bright white
 		};
 	}
 
-	return opaque(Palette[Index & ConsoleMask]);
+	return Palette;
+}
+
+COLORREF ConsoleIndexToTrueColor(size_t Index)
+{
+	return opaque(console_palette()[Index & ConsoleMask]);
 }
 
 
@@ -297,7 +304,7 @@ const FarColor* StoreColor(const FarColor& Value)
 
 COLORREF ARGB2ABGR(int Color)
 {
-	return (Color & 0xFF000000) | ((Color & 0x00FF0000) >> 16) | (Color & 0x0000FF00) | ((Color & 0x000000FF) << 16);
+	return (Color & 0xFF00FF00) | ((Color & 0x00FF0000) >> 16) | ((Color & 0x000000FF) << 16);
 }
 
 static bool ExtractColor(string_view const Str, COLORREF& Target, FARCOLORFLAGS& TargetFlags, FARCOLORFLAGS SetFlag)
@@ -358,6 +365,37 @@ string_view ExtractColorInNewFormat(string_view const Str, FarColor& Color, bool
 
 #include "testing.hpp"
 
+TEST_CASE("colors.COLORREF")
+{
+	static const struct
+	{
+		COLORREF Src, Alpha, Color, ABGR, Index;
+		bool Opaque, Transparent;
+
+	}
+	Tests[]
+	{
+		{ 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00, false, true  },
+		{ 0x00000001, 0x00000000, 0x00000001, 0x00010000, 0x01, false, true  },
+		{ 0x01000000, 0x01000000, 0x00000000, 0x01000000, 0x00, false, false },
+		{ 0xFF000000, 0xFF000000, 0x00000000, 0xFF000000, 0x00, true,  false },
+		{ 0x00ABCDEF, 0x00000000, 0x00ABCDEF, 0x00EFCDAB, 0x0F, false, true  },
+		{ 0xFFFFFFFF, 0xFF000000, 0x00FFFFFF, 0xFFFFFFFF, 0x0F, true,  false },
+	};
+
+	for (const auto& i: Tests)
+	{
+		REQUIRE(colors::alpha_value(i.Src) == i.Alpha);
+		REQUIRE(colors::color_value(i.Src) == i.Color);
+		REQUIRE(colors::index_value(i.Src) == i.Index);
+		REQUIRE(colors::is_opaque(i.Src) == i.Opaque);
+		REQUIRE(colors::is_transparent(i.Src) == i.Transparent);
+		REQUIRE(colors::is_opaque(colors::opaque(i.Src)));
+		REQUIRE(colors::is_transparent(colors::transparent(i.Src)));
+		REQUIRE(colors::ARGB2ABGR(i.Src) == i.ABGR);
+	}
+}
+
 TEST_CASE("colors.parser")
 {
 	static const struct
@@ -391,17 +429,17 @@ TEST_CASE("colors.parser")
 	}
 	InvalidTests[]
 	{
-		{L""sv, false},
-		{L"("sv, true},
-		{L"(z"sv, true},
-		{L"(z)"sv, false},
-		{L"(0:z)"sv, false},
-		{L"(z:0)"sv, false},
-		{L"(Tz)"sv, false},
-		{L"( )"sv, false},
-		{L"( 0)"sv, false},
-		{L"( -0)"sv, false},
-		{L"( +0)"sv, false},
+		{ {},            false },
+		{ L"("sv,        true  },
+		{ L"(z"sv,       true  },
+		{ L"(z)"sv,      false },
+		{ L"(0:z)"sv,    false },
+		{ L"(z:0)"sv,    false },
+		{ L"(Tz)"sv,     false },
+		{ L"( )"sv,      false },
+		{ L"( 0)"sv,     false },
+		{ L"( -0)"sv,    false },
+		{ L"( +0)"sv,    false },
 	};
 
 	for (const auto& i: InvalidTests)

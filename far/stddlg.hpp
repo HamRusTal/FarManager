@@ -117,20 +117,20 @@ int GetSearchReplaceString(
 	string& ReplaceStr,
 	string_view TextHistoryName,
 	string_view ReplaceHistoryName,
-	bool* Case,
-	bool* WholeWords,
-	bool* Reverse,
-	bool* Regexp,
-	bool* PreserveStyle,
+	bool* pCase,
+	bool* pWholeWords,
+	bool* pReverse,
+	bool* pRegexp,
+	bool* pPreserveStyle,
 	string_view HelpTopic = {},
 	bool HideAll=false,
-	const GUID* Id = nullptr,
+	const UUID* Id = nullptr,
 	function_ref<string(bool)> Picker = nullptr
 );
 
 bool GetString(
 	string_view Title,
-	string_view SubTitle,
+	string_view Prompt,
 	string_view HistoryName,
 	string_view SrcText,
 	string &strDestText,
@@ -139,7 +139,7 @@ bool GetString(
 	int* CheckBoxValue = {},
 	string_view CheckBoxText = {},
 	class Plugin* PluginNumber = {},
-	const GUID* Id = {}
+	const UUID* Id = {}
 );
 
 // для диалога GetNameAndPassword()
@@ -148,7 +148,7 @@ enum FlagsNameAndPassword
 	GNP_USELAST      = 0_bit, // использовать последние введенные данные
 };
 
-bool GetNameAndPassword(const string& Title, string& strUserName, string& strPassword, string_view HelpTopic, DWORD Flags);
+bool GetNameAndPassword(string_view Title, string& strUserName, string& strPassword, string_view HelpTopic, DWORD Flags);
 
 enum class operation
 {
@@ -158,9 +158,19 @@ enum class operation
 	cancel
 };
 
-operation OperationFailed(const error_state_ex& ErrorState, string Object, lng Title, string Description, bool AllowSkip = true, bool AllowSkipAll = true);
+operation OperationFailed(const error_state_ex& ErrorState, string_view Object, lng Title, string Description, bool AllowSkip = true, bool AllowSkipAll = true);
 
-void ReCompileErrorMessage(const RegExp& re, const string& str);
+class operation_cancelled: public std::exception
+{
+};
+
+[[noreturn]]
+inline void cancel_operation()
+{
+	throw operation_cancelled{};
+}
+
+void ReCompileErrorMessage(const RegExp& re, string_view str);
 void ReMatchErrorMessage(const RegExp& re);
 
 struct goto_coord
@@ -173,9 +183,6 @@ struct goto_coord
 
 bool GoToRowCol(goto_coord& Row, goto_coord& Col, bool& Hex, string_view HelpTopic);
 
-//  1: Rerty
-//  0: Abort
-// -1: Error
-int RetryAbort(std::vector<string>&& Messages);
+bool RetryAbort(std::vector<string>&& Messages);
 
 #endif // STDDLG_HPP_D7E3481D_D478_4F57_8C20_7E0A21FAE788

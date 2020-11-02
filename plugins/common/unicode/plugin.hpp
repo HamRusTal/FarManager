@@ -6,7 +6,7 @@
 /*
 plugin.hpp
 
-Plugin API for Far Manager 3.0 build 5435
+Plugin API for Far Manager 3.0 build 5655
 */
 /*
 Copyright © 1996 Eugene Roshal
@@ -44,8 +44,8 @@ other possible license with no implications from the above license on them.
 #define FARMANAGERVERSION_MAJOR 3
 #define FARMANAGERVERSION_MINOR 0
 #define FARMANAGERVERSION_REVISION 0
-#define FARMANAGERVERSION_BUILD 5435
-#define FARMANAGERVERSION_STAGE VS_RELEASE
+#define FARMANAGERVERSION_BUILD 5655
+#define FARMANAGERVERSION_STAGE VS_PRIVATE
 
 #ifndef RC_INVOKED
 
@@ -100,15 +100,14 @@ struct FarColor
 	Background
 #endif
 	;
-	void* Reserved;
+	DWORD Reserved[2];
 
 #ifdef __cplusplus
 	bool operator ==(const FarColor& rhs) const
 	{
 		return Flags == rhs.Flags
 			&& ForegroundColor == rhs.ForegroundColor
-			&& BackgroundColor == rhs.BackgroundColor
-			&& Reserved == rhs.Reserved;
+			&& BackgroundColor == rhs.BackgroundColor;
 	}
 
 	bool operator !=(const FarColor& rhs) const
@@ -140,6 +139,7 @@ struct FarColor
 
 #endif
 };
+
 
 #define INDEXMASK 0x0000000f
 #define COLORMASK 0x00ffffff
@@ -528,12 +528,6 @@ struct FAR_CHAR_INFO
 	struct FarColor Attributes;
 
 #ifdef __cplusplus
-	static FAR_CHAR_INFO make(wchar_t Char, const FarColor& Attributes)
-	{
-		FAR_CHAR_INFO info = { Char, Attributes };
-		return info;
-	}
-
 	bool operator ==(const FAR_CHAR_INFO& rhs) const
 	{
 		return Char == rhs.Char && Attributes == rhs.Attributes;
@@ -694,6 +688,10 @@ static const FARMENUFLAGS
 	FMENU_AUTOHIGHLIGHT        = 0x0000000000000004ULL,
 	FMENU_REVERSEAUTOHIGHLIGHT = 0x0000000000000008ULL,
 	FMENU_CHANGECONSOLETITLE   = 0x0000000000000010ULL,
+	FMENU_SHOWNOBOX            = 0x0000000000000020ULL,
+	FMENU_SHOWSHORTBOX         = 0x0000000000000040ULL,
+	FMENU_SHOWSINGLEBOX        = 0x0000000000000080ULL,
+	FMENU_NODRAWSHADOW         = 0x0000000000000100ULL,
 	FMENU_NONE                 = 0;
 
 typedef intptr_t (WINAPI *FARAPIMENU)(
@@ -715,6 +713,7 @@ typedef intptr_t (WINAPI *FARAPIMENU)(
 
 typedef unsigned long long PLUGINPANELITEMFLAGS;
 static const PLUGINPANELITEMFLAGS
+	// The low word is reserved for private flags
 	PPIF_SELECTED               = 0x0000000040000000ULL,
 	PPIF_PROCESSDESCR           = 0x0000000080000000ULL,
 
@@ -820,6 +819,7 @@ enum OPENPANELINFO_SORTMODES
 	SM_DEFAULT                   =  0,
 	SM_UNSORTED                  =  1,
 	SM_NAME                      =  2,
+	SM_FULLNAME                  =  SM_NAME,
 	SM_EXT                       =  3,
 	SM_MTIME                     =  4,
 	SM_CTIME                     =  5,
@@ -831,10 +831,12 @@ enum OPENPANELINFO_SORTMODES
 	SM_NUMLINKS                  = 11,
 	SM_NUMSTREAMS                = 12,
 	SM_STREAMSSIZE               = 13,
-	SM_FULLNAME                  = 14,
+	SM_NAMEONLY                  = 14,
 	SM_CHTIME                    = 15,
 
-	SM_COUNT
+	SM_COUNT,
+
+	SM_USER                      = 100000
 };
 
 struct PanelInfo
@@ -880,7 +882,7 @@ struct FarPanelDirectory
 #define PANEL_NONE    ((HANDLE)(-1))
 #define PANEL_ACTIVE  ((HANDLE)(-1))
 #define PANEL_PASSIVE ((HANDLE)(-2))
-#define PANEL_STOP ((HANDLE)(-1))
+#define PANEL_STOP    ((HANDLE)(-1))
 
 enum FILE_CONTROL_COMMANDS
 {
@@ -930,6 +932,8 @@ typedef void (WINAPI *FARAPITEXT)(
 typedef HANDLE(WINAPI *FARAPISAVESCREEN)(intptr_t X1, intptr_t Y1, intptr_t X2, intptr_t Y2);
 
 typedef void (WINAPI *FARAPIRESTORESCREEN)(HANDLE hScreen);
+
+typedef void (WINAPI *FARAPIFREESCREEN)(HANDLE hScreen);
 
 
 typedef intptr_t (WINAPI *FARAPIGETDIRLIST)(
@@ -1175,6 +1179,7 @@ enum FARMACROVARTYPE
 	FMVT_NIL                    = 7,
 	FMVT_ARRAY                  = 8,
 	FMVT_PANEL                  = 9,
+	FMVT_ERROR                  = 10,
 };
 
 struct FarMacroValue
@@ -1267,6 +1272,7 @@ struct FarSetColors
 
 enum WINDOWINFO_TYPE
 {
+	WTYPE_UNKNOWN                   = -1,
 	WTYPE_DESKTOP                   = 0,
 	WTYPE_PANELS                    = 1,
 	WTYPE_VIEWER                    = 2,
@@ -2263,7 +2269,8 @@ struct PluginStartupInfo
 	FARAPIMACROCONTROL     MacroControl;
 	FARAPISETTINGSCONTROL  SettingsControl;
 	const void*            Private;
-	void* Instance;
+	void*                  Instance;
+	FARAPIFREESCREEN       FreeScreen;
 };
 
 typedef HANDLE (WINAPI *FARAPICREATEFILE)(const wchar_t *Object,DWORD DesiredAccess,DWORD ShareMode,LPSECURITY_ATTRIBUTES SecurityAttributes,DWORD CreationDistribution,DWORD FlagsAndAttributes,HANDLE TemplateFile);
@@ -2607,7 +2614,6 @@ struct OpenMacroPluginInfo
 	struct MacroPluginReturn Ret;
 };
 
-
 enum FAR_EVENTS
 {
 	FE_CHANGEVIEWMODE   =0,
@@ -2898,7 +2904,7 @@ extern "C"
 	void     WINAPI FreeContentDataW(const struct GetContentDataInfo *Info);
 
 #ifdef __cplusplus
-};
+}
 #endif
 
 #endif /* RC_INVOKED */

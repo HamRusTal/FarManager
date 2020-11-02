@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "filetype.hpp"
 
@@ -51,9 +54,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "fnparce.hpp"
 #include "configdb.hpp"
 #include "lang.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "global.hpp"
 #include "delete.hpp"
+#include "keyboard.hpp"
 
 // Platform:
 #include "platform.fs.hpp"
@@ -98,9 +102,9 @@ bool ProcessLocalFileTypes(string_view const Name, string_view const ShortName, 
 		{
 			strCommand.clear();
 
-			if (FMask.Set(Mask, FMF_SILENT))
+			if (FMask.assign(Mask, FMF_SILENT))
 			{
-				if (FMask.Compare(Context.Name))
+				if (FMask.check(Context.Name))
 				{
 					ConfigProvider().AssocConfig()->GetCommand(Id, Mode, strCommand);
 
@@ -167,7 +171,7 @@ bool ProcessLocalFileTypes(string_view const Name, string_view const ShortName, 
 	bool PreserveLFN = false;
 	if (SubstFileName(strCommand, Context, &ListNames, &PreserveLFN) && !strCommand.empty())
 	{
-		SCOPED_ACTION(PreserveLongName)(ShortName, PreserveLFN);
+		SCOPED_ACTION(PreserveLongName)(Name, PreserveLFN);
 
 		execute_info Info;
 		Info.DisplayCommand = strCommand;
@@ -271,7 +275,7 @@ void ProcessExternal(string_view const Command, string_view const Name, string_v
 	// If you want your history to be usable - use full paths yourself. We cannot reliably substitute them.
 	Global->CtrlObject->ViewHistory->AddToHistory(strExecStr, AlwaysWaitFinish? HR_EXTERNAL_WAIT : HR_EXTERNAL);
 
-	SCOPED_ACTION(PreserveLongName)(ShortName, PreserveLFN);
+	SCOPED_ACTION(PreserveLongName)(Name, PreserveLFN);
 
 	execute_info Info;
 	Info.DisplayCommand = strExecStr;
@@ -339,6 +343,8 @@ enum EDITTYPERECORD
 	ETR_SEPARATOR2,
 	ETR_BUTTON_OK,
 	ETR_BUTTON_CANCEL,
+
+	ETR_COUNT
 };
 
 static intptr_t EditTypeRecordDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,void* Param2)
@@ -366,7 +372,7 @@ static intptr_t EditTypeRecordDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,v
 
 			if (Param1==ETR_BUTTON_OK)
 			{
-				return filemasks().Set(reinterpret_cast<const wchar_t*>(Dlg->SendMessage(DM_GETCONSTTEXTPTR, ETR_EDIT_MASKS, nullptr)));
+				return filemasks().assign(reinterpret_cast<const wchar_t*>(Dlg->SendMessage(DM_GETCONSTTEXTPTR, ETR_EDIT_MASKS, nullptr)));
 			}
 			break;
 
@@ -380,7 +386,8 @@ static intptr_t EditTypeRecordDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,v
 static bool EditTypeRecord(unsigned long long EditPos,bool NewRec)
 {
 	const int DlgX=76,DlgY=23;
-	auto EditDlg = MakeDialogItems(
+
+	auto EditDlg = MakeDialogItems<ETR_COUNT>(
 	{
 		{ DI_DOUBLEBOX, {{3,   1,   }, {DlgX-4, DlgY-2}}, DIF_NONE, msg(lng::MFileAssocTitle), },
 		{ DI_TEXT,      {{5,   2,   }, {0,      2     }}, DIF_NONE, msg(lng::MFileAssocMasks), },
@@ -404,7 +411,6 @@ static bool EditTypeRecord(unsigned long long EditPos,bool NewRec)
 		{ DI_BUTTON,    {{0,  DlgY-3}, {0,      DlgY-3}}, DIF_CENTERGROUP | DIF_DEFAULTBUTTON, msg(lng::MOk), },
 		{ DI_BUTTON,    {{0,  DlgY-3}, {0,      DlgY-3}}, DIF_CENTERGROUP, msg(lng::MCancel), },
 	});
-
 
 	EditDlg[ETR_EDIT_MASKS].strHistory = L"Masks"sv;
 
@@ -490,14 +496,14 @@ void EditFileTypes()
 	const auto TypesMenu = VMenu2::create(msg(lng::MAssocTitle), {}, ScrY - 4);
 	TypesMenu->SetHelp(L"FileAssoc"sv);
 	TypesMenu->SetMenuFlags(VMENU_WRAPMODE);
-	TypesMenu->SetBottomTitle(msg(lng::MAssocBottom));
+	TypesMenu->SetBottomTitle(KeysToLocalizedText(KEY_INS, KEY_DEL, KEY_F4, KEY_CTRLUP, KEY_CTRLDOWN));
 	TypesMenu->SetId(FileAssocMenuId);
 
 	bool Changed = false;
 	for (;;)
 	{
 		int NumLine = FillFileTypesMenu(TypesMenu.get(), MenuPos);
-		int ExitCode=TypesMenu->Run([&](const Manager::Key& RawKey)
+		const auto ExitCode = TypesMenu->Run([&](const Manager::Key& RawKey)
 		{
 			const auto Key=RawKey();
 			MenuPos=TypesMenu->GetSelectPos();
@@ -549,10 +555,10 @@ void EditFileTypes()
 				case KEY_CTRLDOWN:
 				case KEY_RCTRLDOWN:
 				{
-					if (!((Key==KEY_CTRLUP || Key==KEY_RCTRLUP) && !MenuPos) &&
-						!((Key == KEY_CTRLDOWN || Key == KEY_RCTRLDOWN) && MenuPos == static_cast<int>(TypesMenu->size() - 1)))
+					if (!(any_of(Key, KEY_CTRLUP, KEY_RCTRLUP) && !MenuPos) &&
+						!(any_of(Key, KEY_CTRLDOWN, KEY_RCTRLDOWN) && MenuPos == static_cast<int>(TypesMenu->size() - 1)))
 					{
-						int NewMenuPos=MenuPos+((Key==KEY_CTRLUP || Key==KEY_RCTRLUP)?-1:+1);
+						const auto NewMenuPos = MenuPos + (any_of(Key, KEY_CTRLUP, KEY_RCTRLUP) ? -1 : 1);
 						if (const auto IdPtr = TypesMenu->GetComplexUserDataPtr<unsigned long long>(MenuPos))
 						{
 							if (const auto IdPtr2 = TypesMenu->GetComplexUserDataPtr<unsigned long long>(NewMenuPos))
@@ -583,6 +589,7 @@ void EditFileTypes()
 		{
 			MenuPos=ExitCode;
 			TypesMenu->Key(KEY_F4);
+			TypesMenu->ClearDone();
 			continue;
 		}
 

@@ -170,6 +170,7 @@
           <ComponentRef Id="FarIta.lng" />
         </Feature>
         <Feature Id="Polish" Level="1" Title="!(loc.Feature.Title.Polish)" AllowAdvertise="no">
+          <ComponentRef Id="FarPol.hlf" />
           <ComponentRef Id="FarPol.lng" />
         </Feature>
         <Feature Id="Russian" Level="1" Title="!(loc.Feature.Title.Russian)" AllowAdvertise="no">
@@ -294,6 +295,7 @@
               <ComponentRef Id="BrackIta.lng" />
             </Feature>
             <Feature Id="Brackets.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+              <ComponentRef Id="BrackPol.hlf" />
               <ComponentRef Id="BrackPol.lng" />
             </Feature>
             <Feature Id="Brackets.Belarusian" Level="1" Display="hidden" AllowAdvertise="no">
@@ -391,6 +393,7 @@
             <ComponentRef Id="arclite_ita.lng" />
           </Feature>
           <Feature Id="arclite.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="arclite_pol.hlf" />
             <ComponentRef Id="arclite_pol.lng" />
           </Feature>
           <Feature Id="arclite.Belarusian" Level="1" Display="hidden" AllowAdvertise="no">
@@ -444,6 +447,7 @@
             <ComponentRef Id="CompIta.lng" />
           </Feature>
           <Feature Id="Compare.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="CmpPol.hlf" />
             <ComponentRef Id="CompPol.lng" />
           </Feature>
           <Feature Id="Compare.Belarusian" Level="1" Display="hidden" AllowAdvertise="no">
@@ -631,6 +635,10 @@
             <ComponentRef Id="FARCmdsRus.hlf" />
             <ComponentRef Id="FARCmdsRus.lng" />
           </Feature>
+          <Feature Id="FARCmds.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="FARCmdsPol.hlf" />
+            <ComponentRef Id="FARCmdsPol.lng" />
+          </Feature>
 <?if $(var.Platform) = x86 ?>
           <Feature Id="FARCmds.FExcept" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="FarCmds.map" />
@@ -790,6 +798,9 @@
           <Feature Id="LuaMacro.Russian" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="lm_rus.lng" />
           </Feature>
+          <Feature Id="LuaMacro.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="lm_pol.lng" />
+          </Feature>
 <?if $(var.Platform) = x86 ?>
           <Feature Id="LuaMacro.FExcept" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="LuaMacro.map" />
@@ -820,6 +831,10 @@
             <ComponentRef Id="NetRus.hlf" />
             <ComponentRef Id="NetRus.lng" />
           </Feature>
+          <Feature Id="Network.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="NetPol.hlf" />
+            <ComponentRef Id="NetPol.lng" />
+          </Feature>
 <?if $(var.Platform) = x86 ?>
           <Feature Id="Network.FExcept" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="Network.map" />
@@ -842,6 +857,10 @@
           <Feature Id="Proclist.Russian" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="ProcRus.hlf" />
             <ComponentRef Id="ProcRus.lng" />
+          </Feature>
+          <Feature Id="Proclist.Polish" Level="1" Display="hidden" AllowAdvertise="no">
+            <ComponentRef Id="ProcPol.hlf" />
+            <ComponentRef Id="ProcPol.lng" />
           </Feature>
 <?if $(var.Platform) = x86 ?>
           <Feature Id="Proclist.FExcept" Level="1" Display="hidden" AllowAdvertise="no">
@@ -872,6 +891,7 @@
           <Feature Id="TmpPanel.Polish" Level="1" Display="hidden" AllowAdvertise="no">
             <ComponentRef Id="disks.pol.temp" />
             <ComponentRef Id="shortcuts.pol.lua" />
+            <ComponentRef Id="TmpPol.hlf" />
             <ComponentRef Id="TmpPol.lng" />
           </Feature>
           <Feature Id="TmpPanel.Belarusian" Level="1" Display="hidden" AllowAdvertise="no">

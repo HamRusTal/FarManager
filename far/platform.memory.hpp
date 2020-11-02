@@ -52,41 +52,43 @@ namespace os::memory
 		{
 			struct deleter
 			{
-				void operator()(HGLOBAL MemoryBlock) const;
+				void operator()(HGLOBAL MemoryBlock) const noexcept;
 			};
 
 			struct unlocker
 			{
-				void operator()(const void* MemoryBlock) const;
+				void operator()(const void* MemoryBlock) const noexcept;
 			};
-		};
+		}
 
 		using ptr = std::unique_ptr<std::remove_pointer_t<HGLOBAL>, detail::deleter>;
 
-		ptr alloc(UINT Flags, size_t size);
+		ptr alloc(unsigned Flags, size_t Size);
 
 		template<class T>
 		using lock_t = std::unique_ptr<std::remove_pointer_t<T>, detail::unlocker>;
 
 		template<class T>
 		[[nodiscard]]
-		auto lock(HGLOBAL Ptr)
+		auto lock(HGLOBAL Ptr) noexcept
 		{
 			return lock_t<T>(static_cast<T>(GlobalLock(Ptr)));
 		}
 
 		template<class T>
 		[[nodiscard]]
-		auto lock(const ptr& Ptr)
+		auto lock(const ptr& Ptr) noexcept
 		{
 			return lock<T>(Ptr.get());
 		}
+
+		ptr copy(HGLOBAL Ptr);
 
 		template<class T>
 		[[nodiscard]]
 		ptr copy(const T& Object)
 		{
-			static_assert(std::is_pod_v<T>);
+			static_assert(std::is_trivially_copyable_v<T>);
 
 			auto Memory = alloc(GMEM_MOVEABLE, sizeof(Object));
 			if (!Memory)
@@ -110,9 +112,9 @@ namespace os::memory
 		{
 			struct deleter
 			{
-				void operator()(const void* MemoryBlock) const;
+				void operator()(const void* MemoryBlock) const noexcept;
 			};
-		};
+		}
 
 		template<class T>
 		class ptr: public base<std::unique_ptr<T, detail::deleter>>
@@ -125,9 +127,9 @@ namespace os::memory
 
 		template<class T>
 		[[nodiscard]]
-		auto alloc(UINT Flags, size_t size)
+		auto alloc(unsigned const Flags, size_t const Size)
 		{
-			return ptr<T>(static_cast<T*>(LocalAlloc(Flags, size)));
+			return ptr<T>(static_cast<T*>(LocalAlloc(Flags, Size)));
 		}
 
 		template<class T>
@@ -139,6 +141,8 @@ namespace os::memory
 
 	[[nodiscard]]
 	bool is_pointer(const void* Address);
+
+	void enable_low_fragmentation_heap();
 }
 
 #endif // PLATFORM_MEMORY_HPP_87E958A6_C4DE_4F53_A9F6_337D97D664E6

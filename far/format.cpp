@@ -47,7 +47,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 WARNING_PUSH(3)
 
-WARNING_DISABLE_GCC("-Wformat-nonliteral")
 WARNING_DISABLE_GCC("-Wmissing-declarations")
 
 WARNING_DISABLE_CLANG("-Weverything")
@@ -62,6 +61,6 @@ namespace
 {
 	SCOPED_ACTION(components::component)([]
 	{
-		return components::component::info{ L"fmt"sv, format(FSTR(L"{0}.{1}.{2}"), FMT_VERSION / 10000, FMT_VERSION % 10000 / 100, FMT_VERSION % 100) };
+		return components::info{ L"fmt"sv, format(FSTR(L"{0}.{1}.{2}"), FMT_VERSION / 10000, FMT_VERSION % 10000 / 100, FMT_VERSION % 100) };
 	});
 }

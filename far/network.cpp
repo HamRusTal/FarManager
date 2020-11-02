@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "network.hpp"
 
@@ -37,9 +40,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lang.hpp"
 #include "message.hpp"
 #include "stddlg.hpp"
-#include "drivemix.hpp"
-#include "flink.hpp"
-#include "cddrv.hpp"
 #include "pathmix.hpp"
 #include "strmix.hpp"
 #include "exception.hpp"
@@ -81,7 +81,7 @@ os::fs::drives_set GetSavedNetworkDrives()
 	{
 		DWORD Count = -1;
 		auto BufferSize = static_cast<DWORD>(Buffer.size());
-		const auto Result = WNetEnumResource(hEnum, &Count, Buffer.get(), &BufferSize);
+		const auto Result = WNetEnumResource(hEnum, &Count, Buffer.data(), &BufferSize);
 
 		if (Result == ERROR_MORE_DATA)
 		{
@@ -92,12 +92,12 @@ os::fs::drives_set GetSavedNetworkDrives()
 		if (Result != NO_ERROR || !Count)
 			break;
 
-		for (const auto& i: span(Buffer.get(), Count))
+		for (const auto& i: span(Buffer.data(), Count))
 		{
 			const auto Name = i.lpLocalName;
-			if (os::fs::is_standard_drive_letter(Name[0]) && Name[1] == L':')
+			if (os::fs::drive::is_standard_letter(Name[0]) && Name[1] == L':')
 			{
-				Drives.set(os::fs::get_drive_number(Name[0]));
+				Drives.set(os::fs::drive::get_number(Name[0]));
 			}
 		}
 	}
@@ -105,7 +105,7 @@ os::fs::drives_set GetSavedNetworkDrives()
 	return Drives;
 }
 
-bool ConnectToNetworkResource(const string& NewDir)
+bool ConnectToNetworkResource(string_view const NewDir)
 {
 	string LocalName, RemoteName;
 
@@ -114,120 +114,103 @@ bool ConnectToNetworkResource(const string& NewDir)
 	{
 		LocalName = NewDir.substr(0, 2);
 		// TODO: check result
-		DriveLocalToRemoteName(DRIVE_REMOTE_NOT_CONNECTED, NewDir[0], RemoteName);
+		DriveLocalToRemoteName(false, NewDir, RemoteName);
 	}
 	else
 	{
 		LocalName = NewDir;
 		RemoteName = NewDir;
+		DeleteEndSlash(RemoteName);
 	}
 
-	auto strUserName = IsDrive? GetStoredUserName(NewDir[0]) : L""s;
-	string strPassword;
+	auto UserName = IsDrive? GetStoredUserName(NewDir[0]) : L""s;
 
-	NETRESOURCE netResource {};
+	NETRESOURCE netResource{};
 	netResource.dwType = RESOURCETYPE_DISK;
 	netResource.lpLocalName = IsDrive? UNSAFE_CSTR(LocalName) : nullptr;
 	netResource.lpRemoteName = UNSAFE_CSTR(RemoteName);
 	netResource.lpProvider = nullptr;
-	DWORD res = WNetAddConnection2(&netResource, nullptr, EmptyToNull(strUserName), 0);
 
-	if (res == ERROR_SESSION_CREDENTIAL_CONFLICT)
-		res = WNetAddConnection2(&netResource, nullptr, nullptr, 0);
-
-	if (res != NO_ERROR)
+	if (const auto Result = WNetAddConnection2(&netResource, nullptr, EmptyToNull(UserName), 0); Result == NO_ERROR ||
+		(Result == ERROR_SESSION_CREDENTIAL_CONFLICT && WNetAddConnection2(&netResource, nullptr, nullptr, 0) == NO_ERROR))
 	{
-		for (;;)
+		return true;
+	}
+
+	string Password;
+
+	for (;;)
+	{
+		if (!GetNameAndPassword(RemoteName, UserName, Password, {}, GNP_USELAST))
+			return false;
+
+		if (const auto Result = WNetAddConnection2(&netResource, Password.c_str(), EmptyToNull(UserName), 0); Result == NO_ERROR)
+			return true;
+		else if (Result != ERROR_ACCESS_DENIED && Result != ERROR_INVALID_PASSWORD && Result != ERROR_LOGON_FAILURE)
 		{
-			if (!GetNameAndPassword(RemoteName, strUserName, strPassword, {}, GNP_USELAST))
-				break;
-
-			res = WNetAddConnection2(&netResource, strPassword.c_str(), EmptyToNull(strUserName), 0);
-
-			if (res == NO_ERROR)
-				break;
-
-			if (res != ERROR_ACCESS_DENIED && res != ERROR_INVALID_PASSWORD && res != ERROR_LOGON_FAILURE)
-			{
-				Message(MSG_WARNING, error_state::fetch(),
-					msg(lng::MError),
-					{
-						NewDir
-					},
-					{ lng::MOk });
-				break;
-			}
+			Message(MSG_WARNING, error_state::fetch(),
+				msg(lng::MError),
+				{
+					string(NewDir)
+				},
+				{ lng::MOk });
+			return false;
 		}
 	}
-	return res == NO_ERROR;
 }
 
 string ExtractComputerName(const string_view CurDir, string* const strTail)
 {
-	string Result;
-
-	string strNetDir;
-
 	if (strTail)
 		strTail->clear();
 
-	const auto CurDirPathType = ParsePath(CurDir);
-	if (CurDirPathType == root_type::remote || CurDirPathType == root_type::unc_remote)
+	string strNetDir;
+
+	const auto PathType = ParsePath(CurDir);
+
+	if (PathType == root_type::remote || PathType == root_type::unc_remote)
 	{
 		strNetDir = CurDir;
 	}
-	else
+	else if (PathType == root_type::drive_letter || PathType == root_type::win32nt_drive_letter)
 	{
-		os::WNetGetConnection(CurDir.substr(0, 2), strNetDir);
+		if (!os::WNetGetConnection(CurDir.substr(PathType == root_type::drive_letter? 0 : L"\\\\?\\"sv.size(), L"C:"sv.size()), strNetDir))
+			return {};
 	}
 
-	if (!strNetDir.empty())
-	{
-		const auto NetDirPathType = ParsePath(strNetDir);
-		if (NetDirPathType == root_type::remote || NetDirPathType == root_type::unc_remote)
-		{
-			Result = strNetDir.substr(NetDirPathType == root_type::remote? 2 : 8);
+	if (strNetDir.empty())
+		return {};
 
-			const auto pos = FindSlash(Result);
-			if (pos != string::npos)
-			{
-				if (strTail)
-				{
-					*strTail = Result.substr(pos + 1);
-				}
-				Result.resize(pos);
-			}
-			else
-			{
-				Result.clear();
-			}
-		}
-	}
+	const auto NetDirPathType = ParsePath(strNetDir);
+	if (NetDirPathType != root_type::remote && NetDirPathType != root_type::unc_remote)
+		return {};
+
+	auto Result = strNetDir.substr(NetDirPathType == root_type::remote? L"\\\\"sv.size() : L"\\\\?\\UNC\\"sv.size());
+	const auto pos = FindSlash(Result);
+	if (pos == string::npos)
+		return {};
+
+	if (strTail)
+		strTail->assign(Result, pos + 1, string::npos); // gcc 7.3-8.1 bug: npos required. TODO: Remove after we move to 8.2 or later)
+
+	Result.resize(pos);
+
 	return Result;
 }
 
-bool DriveLocalToRemoteName(int DriveType, wchar_t Letter, string &strDest)
+bool DriveLocalToRemoteName(bool const DetectNetworkDrive, string_view const LocalPath, string &strDest)
 {
-	const auto LocalName = os::fs::get_drive(Letter);
+	const auto PathType = ParsePath(LocalPath);
+	if (PathType != root_type::drive_letter && PathType != root_type::win32nt_drive_letter)
+		return false;
 
-	if (DriveType == DRIVE_UNKNOWN)
-	{
-		DriveType = FAR_GetDriveType(LocalName);
-	}
+	if (DetectNetworkDrive && os::fs::drive::get_type(LocalPath) != DRIVE_REMOTE)
+		return false;
 
 	string strRemoteName;
+	if (!os::WNetGetConnection(LocalPath.substr(PathType == root_type::drive_letter ? 0 : L"\\\\?\\"sv.size(), L"C:"sv.size()), strRemoteName))
+		return false;
 
-	if (IsDriveTypeRemote(DriveType) && os::WNetGetConnection(LocalName, strRemoteName))
-	{
-		strDest = strRemoteName;
-		return true;
-	}
-
-	if (GetSubstName(DriveType, LocalName, strRemoteName))
-	{
-		strDest = strRemoteName;
-		return true;
-	}
-
-	return false;
+	strDest = strRemoteName;
+	return true;
 }

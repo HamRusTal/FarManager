@@ -85,7 +85,7 @@ public:
 
 	// Эти функции можно безопасно вызывать практически из любого места кода
 	// они как бы накапливают информацию о том, что нужно будет сделать с окнами при следующем вызове Commit()
-	void InsertWindow(const window_ptr& NewWindow);
+	void InsertWindow(const window_ptr& Inserted);
 	void DeleteWindow(const window_ptr& Deleted = nullptr);
 	void ActivateWindow(const window_ptr& Activated);
 	void RefreshWindow(const window_ptr& Refreshed = nullptr);
@@ -109,18 +109,18 @@ public:
 	bool ExitAll();
 	size_t GetWindowCount() const { return m_windows.size(); }
 	int  GetWindowCountByType(int Type);
-	/*$ 26.06.2001 SKV
-	Для вызова через ACTL_COMMIT
+	/*
+	This method can execute any far or plugins code. Never call from non-reentrant code.
 	*/
 	void PluginCommit();
-	int CountWindowsWithName(const string& Name, bool IgnoreCase = true);
+	int CountWindowsWithName(string_view Name, bool IgnoreCase = true);
 	bool IsPanelsActive(bool and_not_qview = false, bool or_autocomplete = false) const;
 	window_ptr FindWindowByFile(int ModalType, string_view FileName);
 	void EnterMainLoop();
 	void ProcessMainLoop();
 	void ExitMainLoop(int Ask);
 	bool ProcessKey(Key key);
-	bool ProcessMouse(const MOUSE_EVENT_RECORD *me) const;
+	bool ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent) const;
 	void PluginsMenu() const; // вызываем меню по F11
 	void SwitchToPanels();
 	window_ptr GetCurrentWindow() const { return m_windows.empty() ? nullptr : m_windows.back(); }
@@ -192,7 +192,7 @@ private:
 
 	using windows = std::vector<window_ptr>;
 	void* GetCurrent(function_ref<void*(window_ptr const&)> Check) const;
-	const windows::const_iterator FindFileResult();
+	windows::const_iterator SpecialWindow();
 	windows m_windows;
 	size_t m_NonModalSize;
 	bool EndLoop;            // Признак выхода из цикла

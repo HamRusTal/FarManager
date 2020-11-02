@@ -34,22 +34,21 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "placement.hpp"
 #include "preprocessor.hpp"
+#include "range.hpp"
+#include "utility.hpp"
 
 //----------------------------------------------------------------------------
 
-template<typename T, size_t StaticSize>
-class array_ptr
+template<typename T, size_t MinStaticSize, REQUIRES(std::is_trivially_copyable_v<T>)>
+class array_ptr: public span<T>
 {
 public:
 	NONCOPYABLE(array_ptr);
 
-WARNING_PUSH()
-WARNING_DISABLE_MSC(4582) // no page                                                'class': constructor is not implicitly called
-WARNING_DISABLE_MSC(4583) // no page                                                'class': destructor is not implicitly called
-
 	array_ptr() noexcept
 	{
-		placement::construct(m_StaticBuffer);
+		m_Buffer.template emplace<static_type>();
+		init_span(0);
 	}
 
 	explicit array_ptr(size_t const Size, bool Init = false):
@@ -63,16 +62,8 @@ WARNING_DISABLE_MSC(4583) // no page                                            
 		move_from(rhs);
 	}
 
-	~array_ptr()
-	{
-		destruct();
-	}
-
-WARNING_POP()
-
 	array_ptr& operator=(array_ptr&& rhs) noexcept
 	{
-		destruct();
 		return move_from(rhs);
 	}
 
@@ -80,96 +71,71 @@ WARNING_POP()
 	{
 		if (Size > StaticSize)
 		{
-			if (!is_dynamic())
-			{
-				placement::destruct(m_StaticBuffer);
-				placement::construct(m_DynamicBuffer);
-			}
-			m_DynamicBuffer.reset(Init? new T[Size]() : new T[Size]);
+			auto& DynamicBuffer = m_Buffer.template emplace<dynamic_type>();
+
+			// We don't need a strong guarantee here, so it's better to reduce memory usage
+			DynamicBuffer.reset();
+			DynamicBuffer.reset(Init? new T[Size]() : new T[Size]);
 		}
 		else
 		{
-			if (is_dynamic())
-			{
-				placement::destruct(m_DynamicBuffer);
-				placement::construct(m_StaticBuffer);
-			}
+			m_Buffer.template emplace<static_type>();
 		}
 
-		m_Size = Size;
-	}
-
-	[[nodiscard]]
-	size_t size() const noexcept
-	{
-		return m_Size;
+		init_span(Size);
 	}
 
 	[[nodiscard]]
 	explicit operator bool() const noexcept
 	{
-		return m_Size != 0;
+		return !this->empty();
 	}
 
 	[[nodiscard]]
-	T* get() const noexcept
+	T& operator*() const noexcept
 	{
-		assert(m_Size);
-		return size() > StaticSize? m_DynamicBuffer.get() : m_StaticBuffer.data();
-	}
-
-	[[nodiscard]]
-	T& operator*() const
-	{
-		assert(m_Size);
-		return *get();
-	}
-
-	[[nodiscard]]
-	T& operator[](size_t Index) const
-	{
-		assert(Index < m_Size);
-		return get()[Index];
+		assert(!this->empty());
+		return *this->data();
 	}
 
 private:
-	bool is_dynamic() const
+	using dynamic_type = std::unique_ptr<T[]>;
+	constexpr static size_t StaticSize = std::max(MinStaticSize, sizeof(dynamic_type) / sizeof(T));
+	using static_type = std::array<T, StaticSize>;
+
+	void init_span(size_t const Size) noexcept
 	{
-		return m_Size > StaticSize;
+		static_cast<span<T>&>(*this) =
+		{
+			std::visit(overload
+			{
+				[](static_type& Data){ return Data.data(); },
+				[](dynamic_type& Data){ return Data.get(); }
+			}, m_Buffer),
+			Size
+		};
 	}
 
-	void destruct()
+	bool is_dynamic(size_t const Size) const noexcept
 	{
-		if (is_dynamic())
-			placement::destruct(m_DynamicBuffer);
-		else
-			placement::destruct(m_StaticBuffer);
+		return Size > StaticSize;
+	}
+
+	bool is_dynamic() const noexcept
+	{
+		return is_dynamic(this->size());
 	}
 
 	array_ptr& move_from(array_ptr& rhs) noexcept
 	{
-		if (rhs.is_dynamic())
-		{
-			placement::construct(m_DynamicBuffer, std::move(rhs.m_DynamicBuffer));
-			placement::destruct(rhs.m_DynamicBuffer);
-		}
-		else
-		{
-			placement::construct(m_StaticBuffer, std::move(rhs.m_StaticBuffer));
-			placement::destruct(rhs.m_StaticBuffer);
-		}
-
-		m_Size = std::exchange(rhs.m_Size, 0);
+		m_Buffer = std::move(rhs.m_Buffer);
+		init_span(rhs.size());
+		rhs.init_span(0);
 
 		return *this;
 	}
 
-	union
-	{
-		mutable std::array<T, StaticSize> m_StaticBuffer;
-		std::unique_ptr<T[]> m_DynamicBuffer;
-	};
-	size_t m_Size{};
+	mutable std::variant<static_type, dynamic_type> m_Buffer;
 };
 
 template<size_t Size = 1>
@@ -182,7 +148,7 @@ using wchar_t_ptr = wchar_t_ptr_n<1>;
 using char_ptr = char_ptr_n<1>;
 
 
-template<typename T, size_t Size = 1>
+template<typename T, size_t Size = 1, REQUIRES(std::is_trivially_copyable_v<T>)>
 class block_ptr: public char_ptr_n<Size>
 {
 public:
@@ -193,13 +159,17 @@ public:
 	block_ptr() noexcept = default;
 
 	[[nodiscard]]
-	decltype(auto) get() const noexcept {return reinterpret_cast<T*>(char_ptr_n<Size>::get());}
+	decltype(auto) data() const noexcept
+	{
+		assert(this->size() >= sizeof(T));
+		return reinterpret_cast<T*>(char_ptr_n<Size>::data());
+	}
 
 	[[nodiscard]]
-	decltype(auto) operator->() const noexcept { return get(); }
+	decltype(auto) operator->() const noexcept { return data(); }
 
 	[[nodiscard]]
-	decltype(auto) operator*() const noexcept {return *get();}
+	decltype(auto) operator*() const noexcept {return *data();}
 };
 
 template <typename T>
@@ -232,7 +202,7 @@ namespace detail
 {
 	struct file_closer
 	{
-		void operator()(FILE* Object) const
+		void operator()(FILE* Object) const noexcept
 		{
 			fclose(Object);
 		}

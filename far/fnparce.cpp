@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "fnparce.hpp"
 
@@ -41,7 +44,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "cmdline.hpp"
 #include "filepanels.hpp"
 #include "dialog.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "pathmix.hpp"
 #include "strmix.hpp"
 #include "mix.hpp"
@@ -52,6 +55,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "delete.hpp"
 #include "message.hpp"
 #include "eol.hpp"
+#include "interf.hpp"
 
 // Platform:
 #include "platform.env.hpp"
@@ -126,6 +130,8 @@ struct subst_data
 	bool PreserveLFN{};
 	bool PassivePanel{};
 	bool EscapeAmpersands{};
+
+	std::unordered_map<string, string>* Variables;
 };
 
 
@@ -249,7 +255,7 @@ static int ProcessBrackets(string_view const Str, wchar_t const EndMark, bracket
 	}
 
 	return 0;
-};
+}
 
 static size_t SkipInputToken(string_view const Str, subst_strings* const Strings = nullptr)
 {
@@ -258,7 +264,7 @@ static size_t SkipInputToken(string_view const Str, subst_strings* const Strings
 	if (!cTail)
 		return 0;
 
-	string_view Tail(cTail);
+	const string_view Tail(cTail);
 
 	auto Range = Tail;
 
@@ -290,77 +296,85 @@ static size_t SkipInputToken(string_view const Str, subst_strings* const Strings
 static bool MakeListFile(panel_ptr const& Panel, string& ListFileName, bool const ShortNames, string_view const Modifers)
 {
 	uintptr_t CodePage = CP_OEMCP;
+	bool UseFullPaths{}, QuotePaths{}, UseForwardSlash{};
 
-	if (!Modifers.empty())
+	for (const auto& i: Modifers)
 	{
-		if (contains(Modifers, L'A')) // ANSI
+		switch (i)
 		{
+		case L'A':
 			CodePage = CP_ACP;
-		}
-		else if (contains(Modifers, L'U')) // UTF8
-		{
+			break;
+
+		case L'U':
 			CodePage = CP_UTF8;
-		}
-		else if (contains(Modifers, L'W')) // UTF16LE
-		{
+			break;
+
+		case L'W':
 			CodePage = CP_UNICODE;
+			break;
+
+		case L'F':
+			UseFullPaths = true;
+			break;
+
+		case L'Q':
+			QuotePaths = true;
+			break;
+
+		case L'S':
+			UseForwardSlash = true;
+			break;
 		}
 	}
 
 	const auto transform = [&](string& strFileName)
 	{
-		if (!Modifers.empty())
+		if (UseFullPaths && PointToName(strFileName).size() == strFileName.size())
 		{
-			if (contains(Modifers, L'F') && PointToName(strFileName).size() == strFileName.size()) // 'F' - использовать полный путь; //BUGBUG?
-			{
-				const auto CurDir = Panel->GetCurDir();
-				strFileName = path::join(ShortNames? ConvertNameToShort(CurDir) : CurDir, strFileName); //BUGBUG?
-			}
-
-			if (contains(Modifers, L'Q')) // 'Q' - заключать имена в кавычки;
-				inplace::quote(strFileName);
-
-			if (contains(Modifers, L'S')) // 'S' - использовать '/' вместо '\' в путях файлов;
-			{
-				ReplaceBackslashToSlash(strFileName);
-			}
+			const auto& CurDir = Panel->GetCurDir();
+			strFileName = path::join(ShortNames? ConvertNameToShort(CurDir) : CurDir, strFileName); //BUGBUG?
 		}
+
+		if (QuotePaths)
+			inplace::quote(strFileName);
+
+		if (UseForwardSlash)
+			ReplaceBackslashToSlash(strFileName);
 	};
+
+	ListFileName = MakeTemp();
 
 	try
 	{
-		ListFileName = MakeTemp();
-		if (const auto ListFile = os::fs::file(ListFileName, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_ALWAYS))
-		{
-			os::fs::filebuf StreamBuffer(ListFile, std::ios::out);
-			std::ostream Stream(&StreamBuffer);
-			Stream.exceptions(Stream.badbit | Stream.failbit);
-			encoding::writer Writer(Stream, CodePage);
-			const auto Eol = eol::str(eol::system());
-
-			for (const auto& i: Panel->enum_selected())
-			{
-				auto Name = ShortNames? i.AlternateFileName() : i.FileName;
-
-				transform(Name);
-
-				Writer.write(Name);
-				Writer.write(Eol);
-			}
-
-			Stream.flush();
-		}
-		else
-		{
+		const os::fs::file ListFile(ListFileName, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_ALWAYS);
+		if (!ListFile)
 			throw MAKE_FAR_EXCEPTION(msg(lng::MCannotCreateListTemp));
+
+		os::fs::filebuf StreamBuffer(ListFile, std::ios::out);
+		std::ostream Stream(&StreamBuffer);
+		Stream.exceptions(Stream.badbit | Stream.failbit);
+		encoding::writer Writer(Stream, CodePage);
+		const auto Eol = eol::system.str();
+
+		for (const auto& i: Panel->enum_selected())
+		{
+			auto Name = ShortNames? i.AlternateFileName() : i.FileName;
+
+			transform(Name);
+
+			Writer.write(Name);
+			Writer.write(Eol);
 		}
+
+		Stream.flush();
 
 		return true;
 	}
 	catch (const far_exception& e)
 	{
-		os::fs::delete_file(ListFileName);
-		Message(MSG_WARNING, e.error_state(),
+		(void)os::fs::delete_file(ListFileName); // BUGBUG
+		Message(MSG_WARNING, e,
 			msg(lng::MError),
 			{
 				msg(lng::MCannotCreateListFile)
@@ -374,16 +388,7 @@ static string_view ProcessMetasymbol(string_view const CurStr, subst_data& Subst
 {
 	const auto append_with_escape = [EscapeAmpersands = SubstData.EscapeAmpersands](string& Destination, string_view const Str)
 	{
-		if (EscapeAmpersands && contains(Str, L"&"sv))
-		{
-			string Escaped(Str);
-			replace(Escaped, L"&"sv, L"&&"sv);
-			append(Destination, Escaped);
-		}
-		else
-		{
-			append(Destination, Str);
-		}
+		append(Destination, EscapeAmpersands && contains(Str, L"&"sv)? escape_ampersands(Str) : Str);
 	};
 
 	if (const auto Tail = tokens::skip(CurStr, tokens::passive_panel))
@@ -424,7 +429,7 @@ static string_view ProcessMetasymbol(string_view const CurStr, subst_data& Subst
 
 	const auto GetExtension = [](string_view const Name)
 	{
-		const auto Extension = PointToExt(Name);
+		const auto Extension = name_ext(Name).second;
 		return Extension.empty()? Extension : Extension.substr(1);
 	};
 
@@ -452,7 +457,11 @@ static string_view ProcessMetasymbol(string_view const CurStr, subst_data& Subst
 			join(
 				select(
 					SubstData.Default().Panel->enum_selected(),
-					[&](os::fs::find_data const& i) { return (Quote? quote : quote_space)(std::invoke(Selector, i)); }),
+					[&](os::fs::find_data const& i)
+					{
+						const auto Data = std::invoke(Selector, i);
+						return Quote? quote(Data) : quote_space(Data);
+					}),
 					L" "sv
 			)
 		);
@@ -617,6 +626,25 @@ static string_view ProcessMetasymbol(string_view const CurStr, subst_data& Subst
 	return CurStr;
 }
 
+static string_view ProcessVariable(string_view const CurStr, subst_data& SubstData, string& Out)
+{
+	const auto Str = CurStr.substr(1);
+
+	const auto Iterator = std::find_if(ALL_CONST_RANGE(*SubstData.Variables), [&](std::pair<string, string> const& i)
+	{
+		return starts_with_icase(Str, i.first);
+	});
+
+	if (Iterator == SubstData.Variables->cend())
+	{
+		Out += CurStr.front();
+		return Str;
+	}
+
+	Out += Iterator->second;
+	return Str.substr(Iterator->first.size());
+}
+
 static string ProcessMetasymbols(string_view Str, subst_data& Data)
 {
 	string Result;
@@ -627,6 +655,10 @@ static string ProcessMetasymbols(string_view Str, subst_data& Data)
 		if (Str.front() == L'!')
 		{
 			Str = ProcessMetasymbol(Str, Data, Result);
+		}
+		else if (Str.front() == L'%')
+		{
+			Str = ProcessVariable(Str, Data, Result);
 		}
 		else
 		{
@@ -645,8 +677,17 @@ static bool InputVariablesDialog(string& strStr, subst_data& SubstData, string_v
 	// TODO: Dynamic?
 	const int DlgWidth = 76;
 
+	constexpr auto HistoryAndVariablePrefix = L"UserVar"sv;
+
+	const auto GenerateHistoryName = [&](size_t const Index)
+	{
+		return format(FSTR(L"{0}{1}"), HistoryAndVariablePrefix, Index);
+	};
+
+	constexpr auto ExpectedTokensCount = 64;
+
 	std::vector<DialogItemEx> DlgData;
-	DlgData.reserve(30);
+	DlgData.reserve(ExpectedTokensCount * 2 + 4); // + Box, separator, 2 buttons
 
 	struct pos_item
 	{
@@ -654,7 +695,7 @@ static bool InputVariablesDialog(string& strStr, subst_data& SubstData, string_v
 		size_t EndPos;
 	};
 	std::vector<pos_item> Positions;
-	Positions.reserve(128);
+	Positions.reserve(ExpectedTokensCount);
 
 	{
 		DialogItemEx Item;
@@ -701,7 +742,7 @@ static bool InputVariablesDialog(string& strStr, subst_data& SubstData, string_v
 			Item.X2 = DlgWidth - 6;
 			Item.Y1 = Item.Y2 = DlgData.size() + 1;
 			Item.Flags = DIF_HISTORY | DIF_USELASTHISTORY;
-			Item.strHistory = concat(L"UserVar"sv, str((DlgData.size() - 1) / 2));
+			Item.strHistory = GenerateHistoryName((DlgData.size() - 1) / 2);
 			DlgData.emplace_back(Item);
 		}
 
@@ -813,6 +854,22 @@ static bool InputVariablesDialog(string& strStr, subst_data& SubstData, string_v
 		}
 	}
 
+	for (const auto& i: DlgData)
+	{
+		if (i.Type != DI_EDIT)
+			continue;
+
+		const auto Index = (&i - DlgData.data() - 1) / 2;
+		const auto VariableName = format(FSTR(L"%{0}{1}"), HistoryAndVariablePrefix, Index + 1);
+		replace_icase(strTmpStr, VariableName, i.strData);
+
+		if (!i.strHistory.empty() && i.strHistory != GenerateHistoryName(Index))
+		{
+			replace_icase(strTmpStr, L'%' + i.strHistory, i.strData);
+			SubstData.Variables->emplace(i.strHistory, i.strData);
+		}
+	}
+
 	strStr = os::env::expand(strTmpStr);
 	return true;
 }
@@ -823,7 +880,7 @@ static bool InputVariablesDialog(string& strStr, subst_data& SubstData, string_v
 
 */
 bool SubstFileName(
-	string &strStr,                  // результирующая строка
+	string &Str,                  // результирующая строка
 	const subst_context& Context,
 	delayed_deleter* ListNames,
 	bool* PreserveLongName,
@@ -844,7 +901,7 @@ bool SubstFileName(
 	  нужно будет либо убрать эту проверку либо изменить условие (последнее
 	  предпочтительнее!)
 	*/
-	if (!contains(strStr, L'!'))
+	if (Str.find_first_of(L"!%"sv) == Str.npos)
 		return true;
 
 	subst_data SubstData;
@@ -854,15 +911,9 @@ bool SubstFileName(
 	SubstData.ListNames = ListNames;
 	SubstData.CmdDir = CmdLineDir.empty()? Global->CtrlObject->CmdLine()->GetCurDir() : CmdLineDir;
 
-	const auto GetNameOnly = [](string_view Str)
-	{
-		Str.remove_suffix(PointToExt(Str).size());
-		return Str;
-	};
-
 	// Предварительно получим некоторые "константы" :-)
-	SubstData.This.Normal.NameOnly = GetNameOnly(Name);
-	SubstData.This.Short.NameOnly = GetNameOnly(ShortName);
+	SubstData.This.Normal.NameOnly = name_ext(Name).first;
+	SubstData.This.Short.NameOnly = name_ext(ShortName).first;
 
 	SubstData.This.Panel = Global->CtrlObject->Cp()->ActivePanel();
 	SubstData.Another.Panel = Global->CtrlObject->Cp()->PassivePanel();
@@ -872,16 +923,18 @@ bool SubstFileName(
 	SubstData.Another.Normal.Name = AnotherName;
 	SubstData.Another.Short.Name = AnotherShortName;
 
-	SubstData.Another.Normal.NameOnly = GetNameOnly(SubstData.Another.Normal.Name);
-	SubstData.Another.Short.NameOnly = GetNameOnly(SubstData.Another.Short.Name);
+	SubstData.Another.Normal.NameOnly = name_ext(SubstData.Another.Normal.Name).first;
+	SubstData.Another.Short.NameOnly = name_ext(SubstData.Another.Short.Name).first;
 
 	SubstData.PreserveLFN = false;
 	SubstData.PassivePanel = false; // первоначально речь идет про активную панель!
 	SubstData.EscapeAmpersands = EscapeAmpersands;
 
-	strStr = ProcessMetasymbols(strStr, SubstData);
+	SubstData.Variables = &Context.Variables;
 
-	const auto Result = IgnoreInput || InputVariablesDialog(strStr, SubstData, DlgTitle.empty()? DlgTitle : os::env::expand(DlgTitle));
+	Str = ProcessMetasymbols(Str, SubstData);
+
+	const auto Result = IgnoreInput || InputVariablesDialog(Str, SubstData, DlgTitle.empty()? DlgTitle : os::env::expand(DlgTitle));
 
 	if (PreserveLongName)
 		*PreserveLongName = SubstData.PreserveLFN;

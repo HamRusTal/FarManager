@@ -33,6 +33,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "editcontrol.hpp"
 
@@ -64,7 +67,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "common/algorithm.hpp"
 #include "common/enum_tokens.hpp"
 #include "common/enum_substrings.hpp"
-#include "common/scope_exit.hpp"
 
 // External:
 
@@ -130,7 +132,7 @@ void EditControl::Changed(bool DelBlock)
 
 void EditControl::SetMenuPos(VMenu2& menu)
 {
-	int MaxHeight = std::min(Global->Opt->Dialogs.CBoxMaxHeight.Get(), static_cast<long long>(menu.size())) + 1;
+	const int MaxHeight = std::min(Global->Opt->Dialogs.CBoxMaxHeight.Get(), static_cast<long long>(menu.size())) + 1;
 
 	const auto NewX2 = std::max(std::min(ScrX - 2, static_cast<int>(m_Where.right)), m_Where.left + 20);
 
@@ -169,7 +171,7 @@ static void AddSeparatorOrSetTitle(VMenu2& Menu, lng TitleId)
 	}
 }
 
-static bool ParseStringWithQuotes(const string& Str, string& Start, string& Token, bool& StartQuote)
+static bool ParseStringWithQuotes(string_view const Str, string& Start, string& Token, bool& StartQuote)
 {
 	size_t Pos;
 	if (std::count(ALL_CONST_RANGE(Str), L'"') & 1) // odd quotes count
@@ -312,7 +314,7 @@ static bool EnumModules(VMenu2& Menu, const string_view strStart, const string_v
 
 				for (const auto& FindData: os::fs::enum_files(path::join(Path, Pattern)))
 				{
-					const auto FindExt = PointToExt(FindData.FileName);
+					const auto FindExt = name_ext(FindData.FileName).second;
 					for (const auto& Ext: PathExtList)
 					{
 						if (starts_with_icase(Ext, FindExt))
@@ -374,7 +376,7 @@ static bool EnumEnvironment(VMenu2& Menu, const string_view strStart, const stri
 	const os::env::provider::strings EnvStrings;
 	for (const auto& i: enum_substrings(EnvStrings.data()))
 	{
-		const auto Name = split_name_value(i).first;
+		const auto Name = split(i).first;
 		if (Name.empty()) // =C: etc.
 			continue;
 
@@ -388,13 +390,34 @@ static bool EnumEnvironment(VMenu2& Menu, const string_view strStart, const stri
 	return EnumWithQuoutes(Menu, strStart, Token, StartQuote, lng::MCompletionEnvironmentTitle, ResultStrings);
 }
 
+static bool is_input_queue_empty()
+{
+	size_t EventsCount = 0;
+	if (!console.GetNumberOfInputEvents(EventsCount))
+		return true; // Let's hope for the best
+
+	if (!EventsCount)
+		return true; // Grand!
+
+	INPUT_RECORD Record;
+	if (EventsCount == 1 && console.PeekOneInput(Record) && Record.EventType == KEY_EVENT && !Record.Event.KeyEvent.bKeyDown)
+	{
+		// The corresponding Up event. It should not happen under normal circumstances.
+		// If it happens - either the user is Flash / Sonic or the host is Windows Terminal.
+		// https://github.com/microsoft/terminal/issues/3910
+		// https://github.com/FarGroup/FarManager/issues/262
+		return true;
+	}
+
+	// Emulated input
+	return false;
+}
+
 int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKey, FARMACROAREA Area)
 {
 	int Result=0;
 	static int Reenter=0;
-	size_t EventsCount = 0;
-	console.GetNumberOfInputEvents(EventsCount);
-	if(ECFlags.Check(EC_ENABLEAUTOCOMPLETE) && !m_Str.empty() && !Reenter && !EventsCount && (Global->CtrlObject->Macro.GetState() == MACROSTATE_NOMACRO || Manual))
+	if(ECFlags.Check(EC_ENABLEAUTOCOMPLETE) && !m_Str.empty() && !Reenter && is_input_queue_empty() && (Global->CtrlObject->Macro.GetState() == MACROSTATE_NOMACRO || Manual))
 	{
 		Reenter++;
 		const auto ComplMenu = VMenu2::create({}, {}, 0);
@@ -417,20 +440,21 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 			// These two guys use the whole string, not the extracted token:
 			if (pHistory && ECFlags.Check(EC_COMPLETE_HISTORY) && CompletionEnabled(Global->Opt->AutoComplete.UseHistory))
 			{
-				auto Items = pHistory->GetAllSimilar(Str);
-				if (!Items.empty())
+				bool AnyAdded = false;
+				pHistory->GetAllSimilar(Str, [&](string_view const Name, unsigned long long const Id, bool const IsLocked)
 				{
-					for (auto& [Name, Id, IsLocked]: Items)
-					{
-						MenuItemEx Item;
-						// Preserve the case of the already entered part
-						Item.ComplexUserData = cmp_user_data{ Global->Opt->AutoComplete.AppendCompletion? Str + string_view(Name).substr(Str.size()) : L""s, Id };
-						Item.Name = std::move(Name);
-						Item.Flags |= IsLocked? LIF_CHECKED : LIF_NONE;
-						ComplMenu->AddItem(std::move(Item));
-					}
+					MenuItemEx Item;
+					// Preserve the case of the already entered part
+					Item.ComplexUserData = cmp_user_data{ Global->Opt->AutoComplete.AppendCompletion? Str + string_view(Name).substr(Str.size()) : L""s, Id };
+					Item.Name = Name;
+					Item.Flags |= IsLocked? LIF_CHECKED : LIF_NONE;
+					ComplMenu->AddItem(std::move(Item));
+
+					AnyAdded = true;
+				});
+
+				if (AnyAdded)
 					ComplMenu->SetTitle(msg(lng::MCompletionHistoryTitle));
-				}
 			}
 			else if (pList)
 			{
@@ -524,18 +548,18 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 				int PrevPos=0;
 
 				bool Visible;
-				DWORD Size;
+				size_t Size;
 				::GetCursorType(Visible, Size);
 				ComplMenu->Key(KEY_NONE);
 				bool IsChanged = false;
-				int ExitCode=ComplMenu->Run([&](const Manager::Key& RawKey)
+				const auto ExitCode = ComplMenu->Run([&](const Manager::Key& RawKey)
 				{
 					auto MenuKey = RawKey();
 					::SetCursorType(Visible, Size);
 
 					if(!Global->Opt->AutoComplete.ModalList)
 					{
-						int CurPos=ComplMenu->GetSelectPos();
+						const auto CurPos = ComplMenu->GetSelectPos();
 						if(CurPos>=0 && (PrevPos!=CurPos || IsChanged))
 						{
 							PrevPos=CurPos;
@@ -549,7 +573,7 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 					else if(MenuKey!=KEY_NONE)
 					{
 						// ввод
-						if((MenuKey>=L' ' && MenuKey<=static_cast<int>(WCHAR_MAX)) || MenuKey==KEY_BS || MenuKey==KEY_DEL || MenuKey==KEY_NUMDEL)
+						if(in_closed_range(L' ', MenuKey, std::numeric_limits<wchar_t>::max()) || any_of(MenuKey, KEY_BS, KEY_DEL, KEY_NUMDEL))
 						{
 							DeleteBlock();
 							const auto strPrev = GetString();
@@ -566,7 +590,7 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 
 								if (ComplMenu->size() > 1 || (ComplMenu->size() == 1 && !equal_icase(CurrentInput, ComplMenu->at(0).Name)))
 								{
-									if(MenuKey!=KEY_BS && MenuKey!=KEY_DEL && MenuKey!=KEY_NUMDEL && Global->Opt->AutoComplete.AppendCompletion)
+									if(none_of(MenuKey, KEY_BS, KEY_DEL, KEY_NUMDEL) && Global->Opt->AutoComplete.AppendCompletion)
 									{
 										AppendCmd();
 									}
@@ -578,8 +602,8 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 								{
 									ComplMenu->Close(-1);
 								}
-								Show();
 							}
+							Show();
 							return 1;
 						}
 						else
@@ -632,11 +656,11 @@ int EditControl::AutoCompleteProc(bool Manual,bool DelBlock,Manager::Key& BackKe
 							case KEY_CTRLRIGHT: case KEY_RCTRLRIGHT:
 							case KEY_CTRLHOME:  case KEY_RCTRLHOME:
 								{
-									if(MenuKey == KEY_LEFT || MenuKey == KEY_NUMPAD4)
+									if(any_of(MenuKey, KEY_LEFT, KEY_NUMPAD4))
 									{
 										MenuKey = KEY_CTRLS;
 									}
-									else if(MenuKey == KEY_RIGHT || MenuKey == KEY_NUMPAD6)
+									else if(any_of(MenuKey, KEY_RIGHT, KEY_NUMPAD6))
 									{
 										MenuKey = KEY_CTRLD;
 									}
@@ -742,7 +766,7 @@ void EditControl::AutoComplete(bool Manual,bool DelBlock)
 		struct FAR_INPUT_RECORD irec = { static_cast<DWORD>(Key()), Key.Event() };
 		if(!Global->CtrlObject->Macro.ProcessEvent(&irec))
 			m_ParentProcessKey(Key);
-		int CurWindowType = Global->WindowManager->GetCurrentWindow()->GetType();
+		const auto CurWindowType = Global->WindowManager->GetCurrentWindow()->GetType();
 		if (CurWindowType == windowtype_dialog || CurWindowType == windowtype_panels)
 		{
 			Show();
@@ -772,35 +796,84 @@ bool EditControl::ProcessKey(const Manager::Key& Key)
 
 bool EditControl::ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent)
 {
-	if(Edit::ProcessMouse(MouseEvent))
+	if (!Edit::ProcessMouse(MouseEvent))
+		return false;
+
+	const auto Scrolling = []
 	{
-		while(IsMouseButtonPressed()==FROM_LEFT_1ST_BUTTON_PRESSED)
+		return IsMouseButtonPressed() == FROM_LEFT_1ST_BUTTON_PRESSED;
+	};
+
+	const auto ToLeft = [&]
+	{
+		return IntKeyState.MousePos.x < m_Where.left;
+	};
+
+	const auto ToRight = [&]
+	{
+		return IntKeyState.MousePos.x > m_Where.right;
+	};
+
+	keyboard_repeat_emulation const Emulation;
+
+	while(Scrolling())
+	{
+		m_Flags.Clear(FEDITLINE_CLEARFLAG);
+
+		auto NewPos = GetTabCurPos();
+		const auto CurLeftPos = GetLeftPos();
+
+		if (ToLeft())
 		{
-			m_Flags.Clear(FEDITLINE_CLEARFLAG);
-			SetTabCurPos(IntKeyState.MousePos.x - m_Where.left + GetLeftPos());
-			if(IntKeyState.MouseEventFlags&MOUSE_MOVED)
+			if (NewPos && --NewPos < CurLeftPos)
 			{
-				if(!Selection)
-				{
-					Selection=true;
-					SelectionStart=-1;
-					Select(SelectionStart,0);
-				}
-				else
-				{
-					if(SelectionStart==-1)
-					{
-						SelectionStart=m_CurPos;
-					}
-					Select(std::min(SelectionStart, m_CurPos), std::min(m_Str.size(), std::max(SelectionStart, m_CurPos)));
-					Show();
-				}
+				if (CurLeftPos)
+					SetLeftPos(CurLeftPos - 1);
+
+				while (!Emulation.signaled() && Scrolling() && ToLeft())
+					std::this_thread::yield();
 			}
 		}
-		Selection=false;
-		return true;
+		else if (ToRight())
+		{
+			if (++NewPos >= CurLeftPos + m_Where.width())
+			{
+				SetLeftPos(CurLeftPos + 1);
+
+				while (!Emulation.signaled() && Scrolling() && ToRight())
+					std::this_thread::yield();
+			}
+		}
+		else
+		{
+			NewPos = CurLeftPos + IntKeyState.MousePos.x - m_Where.left;
+			Emulation.reset();
+		}
+
+		SetTabCurPos(NewPos);
+
+		if (!(IntKeyState.MouseEventFlags & MOUSE_MOVED))
+			continue;
+
+		if(!Selection)
+		{
+			Selection=true;
+			SelectionStart=-1;
+			Select(SelectionStart,0);
+		}
+		else
+		{
+			if(SelectionStart==-1)
+			{
+				SelectionStart=m_CurPos;
+			}
+			Select(std::min(SelectionStart, m_CurPos), std::min(m_Str.size(), std::max(SelectionStart, m_CurPos)));
+			Show();
+		}
 	}
-	return false;
+
+	Selection = false;
+	return true;
 }
 
 void EditControl::SetObjectColor(PaletteColors Color,PaletteColors SelColor,PaletteColors ColorUnChanged)
@@ -849,7 +922,7 @@ EXPAND_TABS EditControl::GetTabExpandMode() const
 	return EXPAND_NOTABS;
 }
 
-void EditControl::SetInputMask(const string& InputMask)
+void EditControl::SetInputMask(string_view const InputMask)
 {
 	m_Mask = InputMask;
 	if (!m_Mask.empty())

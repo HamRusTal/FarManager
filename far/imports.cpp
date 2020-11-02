@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "imports.hpp"
 
@@ -96,6 +99,12 @@ NTSTATUS NTAPI imports::stub_RtlGetLastNtStatus()
 }
 
 NTSTATUS NTAPI imports::stub_RtlNtStatusToDosError(NTSTATUS Status)
+{
+	// TODO: log
+	return STATUS_NOT_IMPLEMENTED;
+}
+
+NTSTATUS NTAPI imports::stub_RtlGetVersion(PRTL_OSVERSIONINFOW VersionInformation)
 {
 	// TODO: log
 	return STATUS_NOT_IMPLEMENTED;
@@ -292,6 +301,27 @@ BOOLEAN WINAPI imports::stub_TryAcquireSRWLockShared(PSRWLOCK SRWLock)
 	return FALSE;
 }
 
+void WINAPI imports::stub_GetSystemTimePreciseAsFileTime(LPFILETIME SystemTimeAsFileTime)
+{
+	// TODO: log
+	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+}
+
+int WINAPI imports::stub_CompareStringOrdinal(LPCWCH String1, int Count1, LPCWCH String2, int Count2, BOOL IgnoreCase)
+{
+	// TODO: log
+	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+	return 0;
+}
+
+WORD NTAPI imports::stub_RtlCaptureStackBackTrace(DWORD FramesToSkip, DWORD FramesToCapture, PVOID* BackTrace, PDWORD BackTraceHash)
+{
+	// TODO: log
+	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+	return 0;
+}
+
+
 // shell32
 HRESULT STDAPICALLTYPE imports::stub_SHCreateAssociationRegistration(REFIID riid, void ** ppv)
 {
@@ -394,6 +424,13 @@ BOOL WINAPI imports::stub_SymInitialize(HANDLE Process, PCSTR UserSearchPath, BO
 	return FALSE;
 }
 
+BOOL WINAPI imports::stub_SymInitializeW(HANDLE Process, LPCWSTR UserSearchPath, BOOL InvadeProcess)
+{
+	// TODO: log
+	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+	return FALSE;
+}
+
 BOOL WINAPI imports::stub_SymCleanup(HANDLE Process)
 {
 	// TODO: log
@@ -402,6 +439,13 @@ BOOL WINAPI imports::stub_SymCleanup(HANDLE Process)
 }
 
 BOOL WINAPI imports::stub_SymFromAddr(HANDLE Process, DWORD64 Address, PDWORD64 Displacement, PSYMBOL_INFO Symbol)
+{
+	// TODO: log
+	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+	return FALSE;
+}
+
+BOOL WINAPI imports::stub_SymFromAddrW(HANDLE Process, DWORD64 Address, PDWORD64 Displacement, PSYMBOL_INFOW Symbol)
 {
 	// TODO: log
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
@@ -422,18 +466,18 @@ BOOL WINAPI imports::stub_SymGetLineFromAddr64(HANDLE Process, DWORD64 Addr, PDW
 	return FALSE;
 }
 
-BOOL WINAPI imports::stub_SymGetModuleInfoW64(HANDLE Process, DWORD64 Addr, PIMAGEHLP_MODULEW64 ModuleInfo)
+BOOL WINAPI imports::stub_SymGetLineFromAddrW64(HANDLE Process, DWORD64 Addr, PDWORD Displacement, PIMAGEHLP_LINEW64 Line)
 {
 	// TODO: log
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
 	return FALSE;
 }
 
-DWORD WINAPI imports::stub_UnDecorateSymbolName(PCSTR Name, PSTR OutputString, DWORD MaxStringLength, DWORD Flags)
+BOOL WINAPI imports::stub_SymGetModuleInfoW64(HANDLE Process, DWORD64 Addr, PIMAGEHLP_MODULEW64 ModuleInfo)
 {
 	// TODO: log
 	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-	return 0;
+	return FALSE;
 }
 
 PVOID WINAPI imports::stub_SymFunctionTableAccess64(HANDLE Process, DWORD64 AddrBase)

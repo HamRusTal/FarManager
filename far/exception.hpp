@@ -46,7 +46,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 struct error_state
 {
 	static error_state fetch();
-	explicit operator bool() const;
 
 	int Errno = 0;
 	DWORD Win32Error = ERROR_SUCCESS;
@@ -56,8 +55,7 @@ struct error_state
 	string Win32ErrorStr() const;
 	string NtErrorStr() const;
 
-private:
-	bool m_Engaged = false;
+	std::array<string, 3> format_errors() const;
 };
 
 struct error_state_ex: public error_state
@@ -70,28 +68,28 @@ struct error_state_ex: public error_state
 	{
 	}
 
+	string format_error() const;
+
 	string What;
 };
 
 namespace detail
 {
-	class far_base_exception
+	class far_base_exception: public error_state_ex
 	{
 	public:
-		[[nodiscard]] const auto& message() const noexcept { return m_ErrorState.What; }
+		[[nodiscard]] const auto& message() const noexcept { return What; }
 		[[nodiscard]] const auto& full_message() const noexcept { return m_FullMessage; }
-		[[nodiscard]] const auto& error_state() const noexcept { return m_ErrorState; }
 		[[nodiscard]] const auto& function() const noexcept { return m_Function; }
 		[[nodiscard]] const auto& location() const noexcept { return m_Location; }
 
 	protected:
-		far_base_exception(const char* Function, const char* File, int Line, string_view Message);
+		far_base_exception(string_view Message, const char* Function, string_view File, int Line);
 
 	private:
-		string m_Function;
+		std::string m_Function;
 		string m_Location;
 		string m_FullMessage;
-		error_state_ex m_ErrorState;
 	};
 
 	class far_std_exception : public far_base_exception, public std::runtime_error
@@ -107,10 +105,10 @@ namespace detail
 		[[nodiscard]] std::string convert_message() const;
 	};
 
-	class attach_debugger
+	class break_into_debugger
 	{
 	protected:
-		attach_debugger();
+		break_into_debugger();
 	};
 }
 
@@ -122,7 +120,7 @@ namespace detail
   I.e. we either don't really know what to do or doing anything will do more harm than good.
   It shouldn't be caught explicitly in general and fly straight to main().
 */
-class far_fatal_exception : private detail::attach_debugger, public detail::far_std_exception
+class far_fatal_exception: private detail::break_into_debugger, public detail::far_std_exception
 {
 	using far_std_exception::far_std_exception;
 };
@@ -131,7 +129,7 @@ class far_fatal_exception : private detail::attach_debugger, public detail::far_
   Represents all other failures, potentially continuable.
   Base class for more specific exceptions.
 */
-class far_exception : public detail::far_std_exception
+class far_exception: public detail::far_std_exception
 {
 	using far_std_exception::far_std_exception;
 };
@@ -139,87 +137,14 @@ class far_exception : public detail::far_std_exception
 /*
   For the cases where it is pretty clear what is wrong, no need to show the stack etc.
  */
-class far_known_exception : public far_exception
+class far_known_exception: public far_exception
 {
 	using far_exception::far_exception;
 };
 
-namespace detail
-{
-	class exception_context
-	{
-	public:
-		NONCOPYABLE(exception_context);
-
-		explicit exception_context(DWORD Code, const EXCEPTION_POINTERS& Pointers, os::handle&& ThreadHandle, DWORD ThreadId);
-
-		auto code() const { return m_Code; }
-		auto pointers() const { return const_cast<EXCEPTION_POINTERS*>(&m_Pointers); }
-		auto thread_handle() const { return m_ThreadHandle.native_handle(); }
-		auto thread_id() const { return m_ThreadId; }
-
-	private:
-		DWORD m_Code;
-		EXCEPTION_POINTERS m_Pointers;
-		os::handle m_ThreadHandle;
-		DWORD m_ThreadId;
-	};
-
-	class seh_exception_context : public exception_context
-	{
-	public:
-		explicit seh_exception_context(DWORD const Code, const EXCEPTION_POINTERS& Pointers, os::handle&& ThreadHandle, DWORD const ThreadId, bool const ResumeThread) :
-			exception_context(Code, Pointers, std::move(ThreadHandle), ThreadId),
-			m_ResumeThread(ResumeThread)
-		{
-		}
-
-		~seh_exception_context();
-
-	private:
-		bool m_ResumeThread;
-	};
-
-}
-
-class far_wrapper_exception : public far_exception
-{
-public:
-	far_wrapper_exception(const char* Function, const char* File, int Line);
-	const std::vector<const void*>& get_stack() const { return m_Stack; }
-
-private:
-	std::shared_ptr<os::handle> m_ThreadHandle;
-	std::vector<const void*> m_Stack;
-};
-
-class seh_exception : public std::exception
-{
-public:
-	seh_exception(DWORD Code, EXCEPTION_POINTERS& Pointers, os::handle&& ThreadHandle, DWORD ThreadId, bool ResumeThread);
-
-	const auto& context() const { return *m_Context; }
-
-private:
-	// Q: Why do you need a shared_ptr here?
-	// A: The exception must be copyable
-	std::shared_ptr<detail::seh_exception_context> m_Context;
-};
-
-std::exception_ptr wrap_currrent_exception();
-
-void rethrow_if(std::exception_ptr& Ptr);
-
-
-#define MAKE_EXCEPTION(ExceptionType, ...) ExceptionType(__FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
+#define MAKE_EXCEPTION(ExceptionType, ...) ExceptionType(__VA_ARGS__, __FUNCTION__, WIDE_SV(__FILE__), __LINE__)
 #define MAKE_FAR_FATAL_EXCEPTION(...) MAKE_EXCEPTION(far_fatal_exception, __VA_ARGS__)
 #define MAKE_FAR_EXCEPTION(...) MAKE_EXCEPTION(far_exception, __VA_ARGS__)
 #define MAKE_FAR_KNOWN_EXCEPTION(...) MAKE_EXCEPTION(far_known_exception, __VA_ARGS__)
-
-#define CATCH_AND_SAVE_EXCEPTION_TO(ExceptionPtr) \
-		catch (...) \
-		{ \
-			ExceptionPtr = wrap_currrent_exception(); \
-		}
 
 #endif // EXCEPTION_HPP_2CD5B7D1_D39C_4CAF_858A_62496C9221DF

@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "manager.hpp"
 
@@ -54,7 +57,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "strmix.hpp"
 #include "exitcode.hpp"
 #include "scrbuf.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "plugins.hpp"
 #include "lang.hpp"
 #include "desktop.hpp"
@@ -62,11 +65,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "fileedit.hpp"
 #include "scrsaver.hpp"
 #include "global.hpp"
+#include "lockscrn.hpp"
 
 // Platform:
 #include "platform.fs.hpp"
 
 // Common:
+#include "common/scope_exit.hpp"
 
 // External:
 #include "format.hpp"
@@ -114,92 +119,112 @@ static bool CASHook(const Manager::Key& key)
 		return false;
 
 	const auto& KeyRecord = key.Event().Event.KeyEvent;
-	if (KeyRecord.bKeyDown)
+	if (!KeyRecord.bKeyDown)
+		return false;
+
+	switch (KeyRecord.wVirtualKeyCode)
 	{
-		switch (KeyRecord.wVirtualKeyCode)
-		{
-		case VK_SHIFT:
-		case VK_MENU:
-		case VK_CONTROL:
-			{
-				const auto
-					maskLeft=LEFT_CTRL_PRESSED|LEFT_ALT_PRESSED|SHIFT_PRESSED,
-					maskRight=RIGHT_CTRL_PRESSED|RIGHT_ALT_PRESSED|SHIFT_PRESSED;
-				const auto state = KeyRecord.dwControlKeyState;
-				const auto wait = [](DWORD mask)
-				{
-					for (;;)
-					{
-						INPUT_RECORD Record;
+	case VK_SHIFT:
+	case VK_MENU:
+	case VK_CONTROL:
+		break;
 
-						if (PeekInputRecord(&Record, true))
-						{
-							GetInputRecord(&Record, true, true);
-							if ((Record.Event.KeyEvent.dwControlKeyState&mask) != mask)
-								break;
-						}
-
-						os::chrono::sleep_for(1ms);
-					}
-				};
-				const auto
-					case1 = Global->Opt->CASRule&1 && (state&maskLeft) == maskLeft,
-					case2 = Global->Opt->CASRule&2 && (state&maskRight) == maskRight;
-				if (case1 || case2)
-				{
-					const auto maskCurrent = case1?maskLeft:maskRight;
-					const auto currentWindow = Global->WindowManager->GetCurrentWindow();
-					if (currentWindow->CanFastHide())
-					{
-						int isPanelFocus=currentWindow->GetType() == windowtype_panels;
-
-						if (isPanelFocus)
-						{
-							const auto LeftVisible = Global->CtrlObject->Cp()->LeftPanel()->IsVisible();
-							const auto RightVisible = Global->CtrlObject->Cp()->RightPanel()->IsVisible();
-							const auto CmdLineVisible = Global->CtrlObject->CmdLine()->IsVisible();
-							const auto KeyBarVisible = Global->CtrlObject->Cp()->GetKeybar().IsVisible();
-							Global->WindowManager->ShowBackground();
-							Global->CtrlObject->Cp()->LeftPanel()->HideButKeepSaveScreen();
-							Global->CtrlObject->Cp()->RightPanel()->HideButKeepSaveScreen();
-
-							switch (Global->Opt->PanelCtrlAltShiftRule)
-							{
-							case 0:
-								if (CmdLineVisible)
-									Global->CtrlObject->CmdLine()->Show();
-								if (KeyBarVisible)
-									Global->CtrlObject->Cp()->GetKeybar().Show();
-								break;
-							case 1:
-								if (KeyBarVisible)
-									Global->CtrlObject->Cp()->GetKeybar().Show();
-								break;
-							}
-
-							wait(maskCurrent);
-
-							if (LeftVisible)      Global->CtrlObject->Cp()->LeftPanel()->Show();
-							if (RightVisible)     Global->CtrlObject->Cp()->RightPanel()->Show();
-							if (CmdLineVisible)   Global->CtrlObject->CmdLine()->Show();
-							if (KeyBarVisible)    Global->CtrlObject->Cp()->GetKeybar().Show();
-						}
-						else
-						{
-							Global->WindowManager->ImmediateHide();
-							wait(maskCurrent);
-						}
-
-						Global->WindowManager->RefreshWindow();
-					}
-
-					return true;
-				}
-				break;
-			}
-		}
+	default:
+		return false;
 	}
-	return false;
+
+	const auto AnyPressed = [](unsigned const State)
+	{
+		return
+			flags::check_any(State, LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) &&
+			flags::check_any(State, LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) &&
+			flags::check_any(State, SHIFT_PRESSED);
+	};
+
+	const auto LeftPressed = [](unsigned const State)
+	{
+		return flags::check_all(State, LEFT_CTRL_PRESSED | LEFT_ALT_PRESSED | SHIFT_PRESSED);
+	};
+
+	const auto RightPressed = [](unsigned const State)
+	{
+		return flags::check_all(State, RIGHT_CTRL_PRESSED | RIGHT_ALT_PRESSED | SHIFT_PRESSED);
+	};
+
+	const auto wait = [](auto const CasChecker)
+	{
+		for (;;)
+		{
+			INPUT_RECORD Record;
+
+			if (!PeekInputRecord(&Record, true))
+				continue;
+
+			GetInputRecord(&Record, true, true);
+			if (!CasChecker(Record.Event.KeyEvent.dwControlKeyState))
+				break;
+
+			os::chrono::sleep_for(1ms);
+		}
+	};
+
+	const auto state = KeyRecord.dwControlKeyState;
+
+	const auto
+		CaseAny   = flags::check_all(Global->Opt->CASRule, 0b11) && AnyPressed(state),
+		CaseLeft  = flags::check_all(Global->Opt->CASRule, 0b01) && LeftPressed(state),
+		CaseRight = flags::check_all(Global->Opt->CASRule, 0b10) && RightPressed(state);
+
+	if (!CaseAny && !CaseLeft && !CaseRight)
+		return false;
+
+	const auto CasChecker = CaseAny? AnyPressed : CaseLeft? LeftPressed : RightPressed;
+
+	const auto currentWindow = Global->WindowManager->GetCurrentWindow();
+
+	if (!currentWindow->CanFastHide())
+		return true;
+
+	if (currentWindow->GetType() == windowtype_panels)
+	{
+		const auto LeftVisible = Global->CtrlObject->Cp()->LeftPanel()->IsVisible();
+		const auto RightVisible = Global->CtrlObject->Cp()->RightPanel()->IsVisible();
+		const auto CmdLineVisible = Global->CtrlObject->CmdLine()->IsVisible();
+		const auto KeyBarVisible = Global->CtrlObject->Cp()->GetKeybar().IsVisible();
+
+		Global->WindowManager->ShowBackground();
+		Global->CtrlObject->Cp()->LeftPanel()->HideButKeepSaveScreen();
+		Global->CtrlObject->Cp()->RightPanel()->HideButKeepSaveScreen();
+
+		switch (Global->Opt->PanelCtrlAltShiftRule)
+		{
+		case 0:
+			if (CmdLineVisible)
+				Global->CtrlObject->CmdLine()->Show();
+			[[fallthrough]];
+		case 1:
+			if (KeyBarVisible)
+				Global->CtrlObject->Cp()->GetKeybar().Show();
+			[[fallthrough]];
+		case 2:
+			break;
+		}
+
+		wait(CasChecker);
+
+		if (LeftVisible)      Global->CtrlObject->Cp()->LeftPanel()->Show();
+		if (RightVisible)     Global->CtrlObject->Cp()->RightPanel()->Show();
+		if (CmdLineVisible)   Global->CtrlObject->CmdLine()->Show();
+		if (KeyBarVisible)    Global->CtrlObject->Cp()->GetKeybar().Show();
+	}
+	else
+	{
+		Global->WindowManager->ImmediateHide();
+		wait(CasChecker);
+	}
+
+	Global->WindowManager->RefreshWindow();
+	return true;
 }
 
 Manager::Manager():
@@ -268,7 +293,8 @@ void Manager::CloseAll()
 
 void Manager::PushWindow(const window_ptr& Param, window_callback Callback)
 {
-	m_Queue.emplace([=]{ std::invoke(Callback, this, Param); });
+	// This idiotic "self=this" is to make both VS17 and VS19 happy
+	m_Queue.emplace([=, self=this]{ std::invoke(Callback, self, Param); });
 }
 
 void Manager::CheckAndPushWindow(const window_ptr& Param, window_callback Callback)
@@ -370,7 +396,7 @@ int Manager::GetModalExitCode() const
 /* $ 11.10.2001 IS
    Подсчитать количество окон с указанным именем.
 */
-int Manager::CountWindowsWithName(const string& Name, bool IgnoreCase)
+int Manager::CountWindowsWithName(string_view const Name, bool IgnoreCase)
 {
 	const auto AreEqual = IgnoreCase? equal_icase : equal;
 
@@ -427,7 +453,7 @@ window_ptr Manager::WindowMenu()
 			auto& [Type, Name, Window] = Data[i];
 
 			const auto Hotkey = static_cast<wchar_t>(i < 10? L'0' + i : i < 36? L'A' + i - 10 : L' ');
-			replace(Name, L"&"sv, L"&&"sv);
+			inplace::escape_ampersands(Name);
 			/*  добавляется "*" если файл изменен */
 			MenuItemEx ModalMenuItem(format(FSTR(L"{0}{1}  {2:<{3}} {4} "), Hotkey == L' '? L""sv : L"&"sv,  Hotkey, Type, TypesWidth, Window->IsFileModified()? L'*' : L' ') + Name);
 			ModalMenuItem.ComplexUserData = Window.get();
@@ -538,7 +564,8 @@ void Manager::ExecuteWindow(const window_ptr& Executed)
 
 void Manager::ReplaceWindow(const window_ptr& Old, const window_ptr& New)
 {
-	m_Queue.emplace([=]{ ReplaceCommit(Old, New); });
+	// This idiotic "self=this" is to make both VS17 and VS19 happy
+	m_Queue.emplace([=, self=this]{ self->ReplaceCommit(Old, New); });
 }
 
 void Manager::ModalDesktopWindow()
@@ -607,17 +634,17 @@ void Manager::ProcessMainLoop()
 	{
 		// Mantis#0000073: Не работает автоскролинг в QView
 		INPUT_RECORD rec;
-		int Key=GetInputRecord(&rec);
+		const auto Key = GetInputRecord(&rec);
 
 		if (EndLoop)
 			return;
 
 		const auto BaseKey = Key & ~KEY_CTRLMASK;
-		if (rec.EventType==MOUSE_EVENT && !(BaseKey == KEY_MSWHEEL_UP || BaseKey == KEY_MSWHEEL_DOWN || BaseKey == KEY_MSWHEEL_RIGHT || BaseKey == KEY_MSWHEEL_LEFT))
+		if (rec.EventType==MOUSE_EVENT && none_of(BaseKey, KEY_MSWHEEL_UP, KEY_MSWHEEL_DOWN, KEY_MSWHEEL_RIGHT, KEY_MSWHEEL_LEFT))
 		{
-				// используем копию структуры, т.к. LastInputRecord может внезапно измениться во время выполнения ProcessMouse
-				MOUSE_EVENT_RECORD mer=rec.Event.MouseEvent;
-				ProcessMouse(&mer);
+			// используем копию структуры, т.к. LastInputRecord может внезапно измениться во время выполнения ProcessMouse
+			auto mer = rec.Event.MouseEvent;
+			ProcessMouse(&mer);
 		}
 		else
 			ProcessKey(Manager::Key(Key, rec));
@@ -709,7 +736,7 @@ bool Manager::ProcessKey(Key key)
 
 				case KEY_F11:
 				{
-					int WindowType = Global->WindowManager->GetCurrentWindow()->GetType();
+					const auto WindowType = Global->WindowManager->GetCurrentWindow()->GetType();
 					static int reentry=0;
 					if(!reentry && (WindowType == windowtype_dialog || WindowType == windowtype_menu))
 					{
@@ -740,12 +767,12 @@ bool Manager::ProcessKey(Key key)
 					*/
 					if (Global->CtrlObject->Macro.IsExecuting())
 					{
-						int PScrX=ScrX;
-						int PScrY=ScrY;
+						const auto PScrX = ScrX;
+						const auto PScrY = ScrY;
 						os::chrono::sleep_for(1ms);
 						UpdateScreenSize();
 
-						if (PScrX+1 == CurSize.X && PScrY+1 == CurSize.Y)
+						if (PScrX + 1 == CurSize.x && PScrY + 1 == CurSize.y)
 						{
 							//_MANAGER(SysLog(-1,"GetInputRecord(WINDOW_BUFFER_SIZE_EVENT); return KEY_NONE"));
 							return true;
@@ -781,7 +808,7 @@ bool Manager::ProcessKey(Key key)
 
 					if (GetCurrentWindow()->GetCanLoseFocus())
 					{
-						SwitchWindow((key()==KEY_CTRLTAB||key()==KEY_RCTRLTAB)? direction::next : direction::previous);
+						SwitchWindow(any_of(key(), KEY_CTRLTAB, KEY_RCTRLTAB)? direction::next : direction::previous);
 					}
 					else
 						break;
@@ -799,18 +826,7 @@ bool Manager::ProcessKey(Key key)
 	return false;
 }
 
-static bool FilterMouseMoveNoise(const MOUSE_EVENT_RECORD* MouseEvent)
-{
-	static COORD LastPosition = {};
-	if (MouseEvent->dwEventFlags == MOUSE_MOVED && LastPosition.X == MouseEvent->dwMousePosition.X && LastPosition.Y == MouseEvent->dwMousePosition.Y)
-	{
-		return false;
-	}
-	LastPosition = MouseEvent->dwMousePosition;
-	return true;
-}
-
-bool Manager::ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent) const
+bool Manager::ProcessMouse(const MOUSE_EVENT_RECORD* MouseEvent) const
 {
 	auto ret = false;
 
@@ -823,7 +839,7 @@ bool Manager::ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent) const
 		}
 	}
 
-	if (GetCurrentWindow() && FilterMouseMoveNoise(MouseEvent))
+	if (GetCurrentWindow())
 		ret=GetCurrentWindow()->ProcessMouse(MouseEvent);
 
 	_MANAGER(SysLog(-1));
@@ -919,7 +935,7 @@ void Manager::InsertCommit(const window_ptr& Param)
 	_MANAGER(SysLog(L"InsertedWindow=%p",Param));
 	if (Param && AddWindow(Param))
 	{
-		auto CurrentWindow = GetCurrentWindow();
+		const auto CurrentWindow = GetCurrentWindow();
 		m_windows.insert(m_windows.begin()+m_NonModalSize,Param);
 		WindowsChanged();
 		++m_NonModalSize;
@@ -948,11 +964,11 @@ void Manager::DeleteCommit(const window_ptr& Param)
 		return;
 	}
 
-	auto CurrentWindow = GetCurrentWindow();
+	const auto CurrentWindow = GetCurrentWindow();
 	if (CurrentWindow == Param) DeactivateCommit(Param);
 	Param->OnDestroy();
 
-	int WindowIndex=IndexOf(Param);
+	const auto WindowIndex=IndexOf(Param);
 	assert(-1!=WindowIndex);
 
 	if (-1!=WindowIndex)
@@ -991,8 +1007,9 @@ void Manager::DeleteCommit(const window_ptr& Param)
 		*(stop->second)=true;
 		m_Executed.erase(stop);
 	}
+
+	[[maybe_unused]]
 	const auto size = m_Added.erase(Param);
-	(void)size;
 	assert(size==1);
 }
 
@@ -1011,7 +1028,7 @@ void Manager::ActivateCommit(const window_ptr& Param)
 
 void Manager::DoActivation(const window_ptr& Old, const window_ptr& New)
 {
-	int WindowIndex=IndexOf(New);
+	const auto WindowIndex = IndexOf(New);
 
 	assert(WindowIndex >= 0);
 	if (static_cast<size_t>(WindowIndex) < m_NonModalSize)
@@ -1040,9 +1057,9 @@ void Manager::RefreshCommit(const window_ptr& Param)
 	if (!Param)
 		return;
 
-	const auto FindFileIterator = FindFileResult();
-	const auto IsFindFileResult = m_windows.cend() != FindFileIterator;
-	const auto WindowIndex = std::min(IndexOf(Param), static_cast<int>(FindFileIterator - m_windows.cbegin()));
+	const auto SpecialWindowIterator = SpecialWindow();
+	const auto IsSpecialWindow = m_windows.cend() != SpecialWindowIterator;
+	const auto WindowIndex = std::min(IndexOf(Param), static_cast<int>(SpecialWindowIterator - m_windows.cbegin()));
 
 	if (-1==WindowIndex)
 		return;
@@ -1055,7 +1072,7 @@ void Manager::RefreshCommit(const window_ptr& Param)
 		m_windows_changed.pop_back();
 	};
 
-	for (const auto& i: range(std::next(m_windows.begin(), (Param->HasSaveScreen() && !IsFindFileResult)?0:WindowIndex), m_windows.end()))
+	for (const auto& i: range(std::next(m_windows.begin(), (Param->HasSaveScreen() && !IsSpecialWindow)?0:WindowIndex), m_windows.end()))
 	{
 		i->Refresh();
 		if (m_windows_changed[ChangedIndex - 1]) //ой, всё!
@@ -1070,7 +1087,7 @@ void Manager::RefreshCommit(const window_ptr& Param)
 			(Global->IsPanelsActive() && Global->Opt->Clock)
 		)
 		{
-			ShowTimeInBackground();
+			ShowTime();
 		}
 	}
 }
@@ -1092,7 +1109,7 @@ void Manager::ExecuteCommit(const window_ptr& Param)
 
 	if (Param && AddWindow(Param))
 	{
-		auto CurrentWindow = GetCurrentWindow();
+		const auto CurrentWindow = GetCurrentWindow();
 		m_windows.emplace_back(Param);
 		WindowsChanged();
 		DoActivation(CurrentWindow, Param);
@@ -1101,7 +1118,7 @@ void Manager::ExecuteCommit(const window_ptr& Param)
 
 void Manager::ReplaceCommit(const window_ptr& Old, const window_ptr& New)
 {
-	int WindowIndex = IndexOf(Old);
+	const auto WindowIndex = IndexOf(Old);
 
 	if (-1 != WindowIndex)
 	{
@@ -1119,8 +1136,8 @@ void Manager::ModalDesktopCommit(const window_ptr& Param)
 {
 	if (m_DesktopModalled++ == 0)
 	{
-		auto Old = GetCurrentWindow();
-		assert(Old != Param);
+		const auto Old = GetCurrentWindow();
+		assert(1 == m_windows.size() || Old != Param);
 		assert(IndexOf(Param) >= 0);
 		const auto Position = m_windows.begin() + IndexOf(Param);
 		std::rotate(Position, Position + 1, m_windows.end());
@@ -1134,14 +1151,14 @@ void Manager::UnModalDesktopCommit(const window_ptr& Param)
 {
 	if (--m_DesktopModalled == 0)
 	{
-		auto Old = GetCurrentWindow();
+		const auto Old = GetCurrentWindow();
 		assert(IndexOf(Param) >= 0);
 		assert(static_cast<size_t>(IndexOf(Param)) >= m_NonModalSize);
 		const auto Position = m_windows.begin() + IndexOf(Param);
 		std::rotate(m_windows.begin(), Position, Position + 1);
 		WindowsChanged();
 		++m_NonModalSize;
-		auto New = GetCurrentWindow();
+		const auto New = GetCurrentWindow();
 		if (Old != New)
 		{
 			DoActivation(Old, New);
@@ -1154,8 +1171,8 @@ void Manager::RefreshAllCommit()
 {
 	if (!m_windows.empty())
 	{
-		const auto ItemIterator = FindFileResult();
-		const auto PtrCopy = (ItemIterator == m_windows.cend()) ? m_windows.front() : *ItemIterator;
+		const auto ItemIterator = SpecialWindow();
+		const auto PtrCopy = m_DesktopModalled == 0 ? ((ItemIterator == m_windows.cend()) ? m_windows.front() : *ItemIterator) : m_windows.back();
 		RefreshCommit(PtrCopy);
 	}
 }
@@ -1211,7 +1228,7 @@ void Manager::ImmediateHide()
 
 void Manager::ResizeAllWindows()
 {
-	Global->ScrBuf->Lock();
+	SCOPED_ACTION(LockScreen);
 
 	for (const auto& i: m_windows)
 	{
@@ -1219,7 +1236,6 @@ void Manager::ResizeAllWindows()
 	}
 
 	RefreshAll();
-	Global->ScrBuf->Unlock();
 }
 
 void Manager::InitKeyBar() const
@@ -1274,7 +1290,7 @@ FileEditor* Manager::GetCurrentEditor() const
 	}));
 }
 
-const Manager::windows::const_iterator Manager::FindFileResult()
+Manager::windows::const_iterator Manager::SpecialWindow()
 {
-	return std::find_if(CONST_RANGE(m_windows, i) { return windowtype_dialog == i->GetType() && FindFileResultId == std::static_pointer_cast<Dialog>(i)->GetId(); });
+	return std::find_if(CONST_RANGE(m_windows, i) { return i->IsSpecial(); });
 }

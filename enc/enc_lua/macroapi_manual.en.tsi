@@ -104,7 +104,7 @@ lv=2
 dt=Text
 nm=Regular macros
 ctime=3580139016
-mtime=3745945309
+mtime=3785248441
 <article>
 #_<markdown>
 #_
@@ -112,17 +112,17 @@ mtime=3745945309
 #_
 #_```
 #_  Macro {
-#_    area         = "Shell Info Tree";                         -- string
-#_    key          = "CtrlF11 ShiftHome";                       -- string (optional field)
-#_    description  = "Macro example";                           -- string (optional field)
-#_    flags        = "NoPluginPanels EmptyCommandLine";         -- string (optional field)
-#_    filemask     = "*.txt,*.cpp";                             -- string (optional field)
-#_    priority     = 50;                                        -- number (optional field)
-#_    sortpriority = 50;                                        -- number (optional field)
-#_    selected     = true;                                      -- boolean (optional field)
-#_    condition    = function(key) return Far.Height>30 end;    -- function (optional field)
-#_    action       = function() msgbox("","Macro example") end; -- function
-#_    id           = "F0109446-AA63-4873-AEC3-17AEE993AA53";    -- string (optional field)
+#_    area         = "Shell Info Tree";                             -- string
+#_    key          = "CtrlF11 ShiftHome";                           -- string (optional field)
+#_    description  = "Macro example";                               -- string (optional field)
+#_    flags        = "NoPluginPanels EmptyCommandLine";             -- string (optional field)
+#_    filemask     = "*.txt,*.cpp";                                 -- string (optional field)
+#_    priority     = 50;                                            -- number (optional field)
+#_    sortpriority = 50;                                            -- number (optional field)
+#_    selected     = true;                                          -- boolean (optional field)
+#_    condition    = function(key,data) return Far.Height>30 end;   -- function (optional field)
+#_    action       = function(data) msgbox("","Macro example") end; -- function
+#_    id           = "F0109446-AA63-4873-AEC3-17AEE993AA53";        -- string (optional field)
 #_  }
 #_```
 #_
@@ -158,15 +158,19 @@ mtime=3745945309
 #_   will not execute.
 #_
 #_1. Optional field `condition` - a function.
-#_   * It is called with one argument: the name of pressed key.
-#_     For auto-started macros it is called with no arguments.
+#_   * It is called with 2 arguments:
+#_     1. Name of the pressed key (`nil` for auto-started macros)
+#_     2. A copy of the table-argument received by function Macro.
+#_        The same copy is used until macros are reloaded.
 #_   * If the function returns `false`/`nil`/nothing, the macro will not execute.
 #_   * If it returns a number then this number is used instead of `priority`.
 #_   * In other cases of return value (e.g., `true`) `priority` is used.<br><br>
 #_
 #_1. Field `action` - a function.<br>
-#_   If the macro has passed successfully all preliminary checks (area, flags, file mask, priority)
-#_   then this functgion is called.
+#_   * If the macro has passed successfully all preliminary checks (area, flags, file mask, priority)
+#_     then this function is called.
+#_   * It is called with 1 argument: a copy of the table-argument received by function Macro.
+#_     It is the same table that is passed as 2-nd argument to function `condition`.<br><br>
 #_
 #_1. More than one macro for (`key`,`area`) combination is allowed. In this case a macro with highest priority is executed. If there are multiple macros having the same priority then the macro selection menu is displayed.<br>
 #_   The auto-starting macros are executed all, one by one, independently from priorities. The order of their execution is not defined.
@@ -233,11 +237,11 @@ lv=2
 dt=Text
 nm=Event handlers
 ctime=3580139337
-mtime=3734986328
+mtime=3777006667
 <article>
 #_<markdown>
 #_
-#_Like [regular macros][1], event handlers are loaded from Lua-files (extension `*.lua`), residing in the directory<br> `%FARPROFILE%\Macros\scripts` and its subdirectories. Each Lua-file may contain both macros and event handlers.
+#_Like [regular macros][1], event handlers are loaded from macrofiles (extensions `*.lua` and `*.moon`), residing in the directory<br> `%FARPROFILE%\Macros\scripts` and its subdirectories. Each macrofile may contain both macros and event handlers.
 #_
 #_Loading a handler occurs when the global function `Event` is called. It receives one argument - a table containing parameters of the event handler. On successful completion the function returns `true`.
 #_
@@ -524,7 +528,7 @@ lv=3
 dt=Text
 nm=Demo example
 ctime=3774010083
-mtime=3774015502
+mtime=3797418999
 <article>
 #_<markdown>
 #_```
@@ -555,7 +559,7 @@ mtime=3774015502
 #_      fp:close()
 #_      if s then
 #_        local out = {}
-#_        s = s:gsub("%s+", " "):match("[%w_].*")
+#_        s = string.gsub(s, "%s+", " ")
 #_        for k,v in ipairs(colnames) do
 #_          if col_set[v:lower()] then out[k]=s end
 #_        end
@@ -953,7 +957,7 @@ lv=2
 dt=Text
 nm=mf
 ctime=3553243522
-mtime=3773253576
+mtime=3778310252
 <article>
 #_**Properties:** none.
 #_
@@ -969,11 +973,12 @@ mtime=3773253576
 #_  chr                `msave`
 #_  clip               msgbox
 #_  date               `postmacro`
-#_  env                print
-#_  `eval`               `printconsole`
-#_  `exit`               prompt  
-#_  fattr              replace 
-#_  fexist             rindex    
+#_  `deserialize`        print           
+#_  env                `printconsole`
+#_  `eval`               prompt        
+#_  `exit`               replace         
+#_  fattr              rindex          
+#_  fexist             `serialize`
 #_  float              size2str  
 #_  flock              sleep     
 #_  fmatch             string    
@@ -989,6 +994,7 @@ mtime=3773253576
 #_
 #_@@@
 #_[acall]: 91.html
+#_[deserialize]: 104.html
 #_[eval]: 79.html
 #_[exit]: 61.html
 #_[GetMacroCopy]: 72.html
@@ -1000,6 +1006,7 @@ mtime=3773253576
 #_[usermenu]: 69.html
 #_[AddExitHandler]: 100.html
 #_[printconsole]: 101.html
+#_[serialize]: 105.html
 #_
 #_{abs}: http://api.farmanager.com/ru/macro/macrocmd/prop_func/general.html#abs
 #_{akey}: http://api.farmanager.com/ru/macro/macrocmd/prop_func/general.html#akey
@@ -1124,6 +1131,38 @@ mtime=3770399831
 #_
 #_@@@
 #_[Restrictions in the use of some functions]: 62.html
+#_
+</article>
+</node>
+<node>
+id=104
+lv=3
+dt=Text
+nm=deserialize
+ctime=3778310150
+mtime=3778310982
+<article>
+#_value, errmsg = mf.deserialize (str)
+#_
+#_**Parameters:**
+#_  str:       string
+#_
+#_**Returns:**
+#_  value:     number, string, boolean, table, int64 or nil.
+#_  errmsg:    nil on success, string on failure.
+#_
+#_**Description:**
+#_  Function *deserialize* recreates a copy of a previously serialized value.
+#_  If the second return value is nil then the first return value is valid.
+#_
+#_**Note:**
+#_  int64 - a distinguished type of userdata, created by the bit64 library.
+#_
+#_**See also:**
+#_`serialize`
+#_
+#_@@@
+#_[serialize]: 105.html
 #_
 </article>
 </node>
@@ -1267,7 +1306,7 @@ lv=3
 dt=Text
 nm=msave
 ctime=3551993205
-mtime=3754050967
+mtime=3778311162
 <article>
 #_ret = mf.msave (key, name, value [, location])
 #_
@@ -1283,7 +1322,7 @@ mtime=3754050967
 #_**Description:**
 #_  Function *msave* saves the specified value into the database.
 #_
-#_  When you save the table the following will be preserved:
+#_  When you save a table the following will be preserved:
 #_     keys of types:    number, string, boolean, table.
 #_     values of types:  number, string, boolean, table, int64.
 #_
@@ -1340,6 +1379,44 @@ mtime=3773253639
 #_  - It inserts a tab character between the arguments.
 #_  - There is no need to call *panel.GetUserScreen()* / *panel.SetUserScreen()*
 #_    as that is done internally.
+#_
+</article>
+</node>
+<node>
+id=105
+lv=3
+dt=Text
+nm=serialize
+ctime=3778310164
+mtime=3778311146
+<article>
+#_ret = mf.serialize (value)
+#_
+#_**Parameters:**
+#_  value:     nil, boolean, number, string, table, int64
+#_
+#_**Returns:**
+#_  ret:       string
+#_
+#_**Description:**
+#_  Function *serialize* converts the passed value into a string.
+#_
+#_  When you serialize a table the following will be preserved:
+#_     keys of types:    number, string, boolean, table.
+#_     values of types:  number, string, boolean, table, int64.
+#_
+#_  Nested tables and recursive references are correctly processed.
+#_
+#_  The link between a table and its metatable is preserved.
+#_
+#_**Note:**
+#_  int64 - a distinguished type of userdata, created by the bit64 library.
+#_
+#_**See also:**
+#_`deserialize`
+#_
+#_@@@
+#_[deserialize]: 104.html
 #_
 </article>
 </node>
@@ -1593,12 +1670,12 @@ lv=3
 dt=Text
 nm=LoadCustomSortMode
 ctime=3585324926
-mtime=3666993887
+mtime=3807114389
 <article>
 #_Panel.LoadCustomSortMode (Mode, Settings)
 #_
 #_**Parameters:**
-#_  Mode:         sort mode; integer >=100 and <=0x7FFFFFFF
+#_  Mode:         sort mode; integer >=SM_USER and <=0x7FFFFFFF
 #_  Settings:     a table containing the following fields:
 #_      *Condition*:
 #_         Function. If it is specified it will be called with one argument - sort mode.
@@ -1675,7 +1752,8 @@ mtime=3666993887
 #_  *-- Load the sorting by file name length.*
 #_  local ffi = require "ffi"
 #_  local C = ffi.C
-#_  Panel.LoadCustomSortMode (100,
+#_  local F = far.Flags
+#_  Panel.LoadCustomSortMode (F.SM_USER+10,
 #_    { 
 #_      Compare = function(p1, p2, opt)
 #_        local l1, l2 = C.wcslen(p1.FileName), C.wcslen(p2.FileName)
@@ -1699,12 +1777,12 @@ lv=3
 dt=Text
 nm=SetCustomSortMode
 ctime=3585499487
-mtime=3676118654
+mtime=3807114048
 <article>
 #_Panel.SetCustomSortMode (Mode, whatpanel [, order])
 #_
 #_**Parameters:**
-#_  Mode:         sorting mode, an integer >=100 and <=0x7FFFFFFF
+#_  Mode:         sorting mode, an integer >=SM_USER and <=0x7FFFFFFF
 #_  whatpanel:    0=active panel, 1=passive panel
 #_  order:        "auto"    - standard choice of sort direction (default)
 #_                "current" - keep current sort direction in the panel
@@ -1723,7 +1801,7 @@ mtime=3676118654
 #_  Macro {
 #_    description="Sort files by their name lengths";
 #_    area="Shell"; key="CtrlShiftF1";
-#_    action=function() Panel.SetCustomSortMode(100,0) end;
+#_    action=function() Panel.SetCustomSortMode(F.SM_USER+10,0) end;
 #_  }
 #_
 #_@@@

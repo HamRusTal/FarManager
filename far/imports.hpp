@@ -74,19 +74,19 @@ private:
 	class unique_function_pointer
 	{
 		// The indirection is a workaround for MSVC
-		using stub_type = std::enable_if_t<true, decltype(StubFunction)>;
+		using function_type = std::enable_if_t<true, decltype(StubFunction)>;
 
 	public:
 		NONCOPYABLE(unique_function_pointer);
 
 		explicit unique_function_pointer(const os::rtdl::module& Module): m_module(&Module) {}
-		operator stub_type() const { return get_pointer(); }
+		operator function_type() const { return get_pointer(); }
 		explicit operator bool() const noexcept { return get_pointer() != StubFunction; }
 
 	private:
 		auto get_pointer() const
 		{
-			static const auto DynamicPointer = reinterpret_cast<stub_type>(m_module->GetProcAddress(text_type::name));
+			static const auto DynamicPointer = m_module->GetProcAddress<function_type>(text_type::name);
 			// TODO: log if nullptr
 			static const auto Pointer = DynamicPointer? DynamicPointer : StubFunction;
 			return Pointer;
@@ -98,7 +98,7 @@ private:
 #define DECLARE_IMPORT_FUNCTION(MODULE, CALLTYPE, RETTYPE, NAME, ...)\
 private: static RETTYPE CALLTYPE stub_##NAME(__VA_ARGS__);\
 private: struct name_##NAME { static constexpr auto name = #NAME; };\
-public: const unique_function_pointer<name_##NAME, imports::stub_##NAME> NAME{m_##MODULE}
+public: const unique_function_pointer<name_##NAME, stub_##NAME> NAME{m_##MODULE}
 
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, NtQueryDirectoryFile, HANDLE FileHandle, HANDLE Event, PVOID ApcRoutine, PVOID ApcContext, PIO_STATUS_BLOCK IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass, BOOLEAN ReturnSingleEntry, PUNICODE_STRING FileName, BOOLEAN RestartScan);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, NtQueryInformationFile, HANDLE FileHandle, PIO_STATUS_BLOCK IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass);
@@ -109,6 +109,7 @@ public: const unique_function_pointer<name_##NAME, imports::stub_##NAME> NAME{m_
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, NtClose, HANDLE Handle);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, RtlGetLastNtStatus);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, RtlNtStatusToDosError, NTSTATUS Status);
+	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, NTSTATUS, RtlGetVersion, PRTL_OSVERSIONINFOW VersionInformation);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, BOOLEAN, RtlAcquireResourceExclusive, PRTL_RESOURCE Res, BOOLEAN WaitForAccess);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, BOOLEAN, RtlAcquireResourceShared, PRTL_RESOURCE Res, BOOLEAN WaitForAccess);
 	DECLARE_IMPORT_FUNCTION(ntdll, NTAPI, void, RtlInitializeResource, PRTL_RESOURCE Res);
@@ -139,6 +140,9 @@ public: const unique_function_pointer<name_##NAME, imports::stub_##NAME> NAME{m_
 	DECLARE_IMPORT_FUNCTION(kernel32, WINAPI, void, ReleaseSRWLockShared, PSRWLOCK SRWLock);
 	DECLARE_IMPORT_FUNCTION(kernel32, WINAPI, BOOLEAN, TryAcquireSRWLockExclusive, PSRWLOCK SRWLock);
 	DECLARE_IMPORT_FUNCTION(kernel32, WINAPI, BOOLEAN, TryAcquireSRWLockShared, PSRWLOCK SRWLock);
+	DECLARE_IMPORT_FUNCTION(kernel32, WINAPI, void, GetSystemTimePreciseAsFileTime, LPFILETIME SystemTimeAsFileTime);
+	DECLARE_IMPORT_FUNCTION(kernel32, WINAPI, int, CompareStringOrdinal, LPCWCH String1, int Count1, LPCWCH String2, int Count2, BOOL IgnoreCase);
+	DECLARE_IMPORT_FUNCTION(kernel32, NTAPI,  WORD, RtlCaptureStackBackTrace, DWORD FramesToSkip, DWORD FramesToCapture, PVOID* BackTrace, PDWORD BackTraceHash);
 
 	DECLARE_IMPORT_FUNCTION(shell32, STDAPICALLTYPE, HRESULT, SHCreateAssociationRegistration, REFIID riid, void** ppv);
 
@@ -160,12 +164,14 @@ public: const unique_function_pointer<name_##NAME, imports::stub_##NAME> NAME{m_
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, MiniDumpWriteDump, HANDLE Process, DWORD ProcessId, HANDLE File, MINIDUMP_TYPE DumpType, PMINIDUMP_EXCEPTION_INFORMATION ExceptionParam, PMINIDUMP_USER_STREAM_INFORMATION UserStreamParam, PMINIDUMP_CALLBACK_INFORMATION CallbackParam);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, StackWalk64, DWORD MachineType, HANDLE Process, HANDLE Thread, LPSTACKFRAME64 StackFrame, PVOID ContextRecord, PREAD_PROCESS_MEMORY_ROUTINE64 ReadMemoryRoutine, PFUNCTION_TABLE_ACCESS_ROUTINE64 FunctionTableAccessRoutine, PGET_MODULE_BASE_ROUTINE64 GetModuleBaseRoutine, PTRANSLATE_ADDRESS_ROUTINE64 TranslateAddress);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymInitialize, HANDLE Process, PCSTR UserSearchPath, BOOL InvadeProcess);
+	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymInitializeW, HANDLE Process, PCWSTR UserSearchPath, BOOL InvadeProcess);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymCleanup, HANDLE Process);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymFromAddr, HANDLE Process, DWORD64 Address, PDWORD64 Displacement, PSYMBOL_INFO Symbol);
+	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymFromAddrW, HANDLE Process, DWORD64 Address, PDWORD64 Displacement, PSYMBOL_INFOW Symbol);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, DWORD, SymSetOptions, DWORD SymOptions);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymGetLineFromAddr64, HANDLE Process, DWORD64 Addr, PDWORD Displacement, PIMAGEHLP_LINE64 Line);
+	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymGetLineFromAddrW64, HANDLE Process, DWORD64 Addr, PDWORD Displacement, PIMAGEHLP_LINEW64 Line);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, BOOL, SymGetModuleInfoW64, HANDLE Process, DWORD64 Addr, PIMAGEHLP_MODULEW64 ModuleInfo);
-	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, DWORD, UnDecorateSymbolName, PCSTR Name, PSTR OutputString, DWORD MaxStringLength, DWORD Flags);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, PVOID, SymFunctionTableAccess64, HANDLE Process, DWORD64 AddrBase);
 	DECLARE_IMPORT_FUNCTION(dbghelp, WINAPI, DWORD64, SymGetModuleBase64, HANDLE Process, DWORD64 Address);
 

@@ -40,7 +40,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Platform:
 
 // Common:
-#include "common/noncopyable.hpp"
 
 // External:
 
@@ -56,6 +55,8 @@ public:
 	string_view Name;
 	string_view ShortName;
 	string_view Path;
+
+	std::unordered_map<string, string> mutable Variables;
 };
 
 bool SubstFileName(

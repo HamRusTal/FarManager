@@ -40,7 +40,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Platform:
 
 // Common:
-#include "common/preprocessor.hpp"
+#include "common/compiler.hpp"
 
 // External:
 
@@ -49,17 +49,17 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define SQLITE_DEFAULT_MEMSTATUS 0
 #define SQLITE_DEFAULT_WAL_SYNCHRONOUS 1
 
-#define SQLITE_OMIT_AUTHORIZATION 1
-#define SQLITE_OMIT_AUTOINIT 1
-#define SQLITE_OMIT_COMPILEOPTION_DIAGS 1
-#define SQLITE_OMIT_DECLTYPE 1
-#define SQLITE_OMIT_DEPRECATED 1
+//#define SQLITE_OMIT_AUTHORIZATION 1
+//#define SQLITE_OMIT_AUTOINIT 1
+//#define SQLITE_OMIT_COMPILEOPTION_DIAGS 1
+//#define SQLITE_OMIT_DECLTYPE 1
+//#define SQLITE_OMIT_DEPRECATED 1
 #ifndef _DEBUG
 // breaks debug build on x86
-#define SQLITE_OMIT_EXPLAIN 1
+//#define SQLITE_OMIT_EXPLAIN 1
 #endif
-#define SQLITE_OMIT_PROGRESS_CALLBACK 1
-#define SQLITE_OMIT_TRACE 1
+//#define SQLITE_OMIT_PROGRESS_CALLBACK 1
+//#define SQLITE_OMIT_TRACE 1
 
 #define SQLITE_WIN32_NO_ANSI 1
 
@@ -72,11 +72,17 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace sqlite
 {
 WARNING_PUSH(3)
+WARNING_DISABLE_GCC("-Wold-style-cast")
 WARNING_DISABLE_GCC("-Wzero-as-null-pointer-constant")
+
+WARNING_DISABLE_CLANG("-Wold-style-cast")
+WARNING_DISABLE_CLANG("-Wzero-as-null-pointer-constant")
+
 #include "thirdparty/sqlite/sqlite3.h"
 
 	static const auto static_destructor = SQLITE_STATIC;
 	static const auto transient_destructor = SQLITE_TRANSIENT;
+
 WARNING_POP()
 }
 

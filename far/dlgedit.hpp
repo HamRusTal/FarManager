@@ -101,7 +101,7 @@ public:
 	int   GetLength() const;
 	int   GetStrSize(int Row = -1) const;
 
-	void  SetInputMask(const string& InputMask);
+	void  SetInputMask(string_view InputMask);
 	string GetInputMask() const;
 
 	void  SetOvertypeMode(bool Mode);
@@ -113,9 +113,9 @@ public:
 	bool  GetClearFlag() const;
 
 	void  Changed();
-	void  SetString(const string& Str);
-	void  InsertString(const string& Str);
-	void  SetHiString(const string& Str);
+	void  SetString(string_view Str);
+	void  InsertString(string_view Str);
+	void  SetHiString(string_view Str);
 	const string& GetString(int Row = -1) const;            // Row==-1 - current line
 
 	void  SetCurPos(int NewCol, int NewRow=-1); // Row==-1 - current line
@@ -146,8 +146,8 @@ public:
 
 	void Xlat(bool All=false);
 
-	void SetCursorType(bool Visible, DWORD Size);
-	void GetCursorType(bool& Visible, DWORD& Size) const;
+	void SetCursorType(bool Visible, size_t Size);
+	void GetCursorType(bool& Visible, size_t& Size) const;
 
 	bool GetReadOnly() const;
 	void SetReadOnly(bool NewReadOnly);
@@ -158,7 +158,7 @@ public:
 	bool HistoryGetSimilar(string &strStr, int LastCmdPartLength, bool bAppend=false) const;
 
 	const std::unique_ptr<History>& GetHistory() const { return iHistory; }
-	void SetHistory(const string& Name);
+	void SetHistory(string_view Name);
 
 private:
 	friend class SetAutocomplete;

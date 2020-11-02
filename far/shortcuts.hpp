@@ -41,7 +41,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/enumerator.hpp"
-#include "common/movable.hpp"
 
 // External:
 
@@ -63,11 +62,11 @@ public:
 		string Folder;
 		string PluginFile;
 		string PluginData;
-		GUID PluginGuid{};
+		UUID PluginUuid{};
 	};
 
 	bool Get(data& Data);
-	void Add(const string& Folder, const GUID& PluginGuid, const string& PluginFile, const string& PluginData);
+	void Add(string_view Folder, const UUID& PluginUuid, string_view PluginFile, string_view PluginData);
 
 	static int Configure();
 

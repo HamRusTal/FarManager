@@ -29,6 +29,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "platform.reg.hpp"
 
@@ -64,7 +67,7 @@ namespace
 		return Result == ERROR_SUCCESS;
 	}
 
-	static bool query_value(const HKEY Key, const string_view Name, DWORD& Type, std::vector<char>& Value)
+	static bool query_value(const HKEY Key, const string_view Name, DWORD& Type, bytes& Value)
 	{
 		size_t Size = 0;
 		if (!query_value(Key, Name, nullptr, nullptr, &Size))
@@ -122,10 +125,10 @@ namespace os::reg
 		{
 			wchar_t_ptr_n<default_buffer_size> Buffer(Size);
 			auto RetSize = Size;
-			ExitCode = RegEnumValue(native_handle(), static_cast<DWORD>(Index), Buffer.get(), &RetSize, nullptr, &Value.m_Type, nullptr, nullptr);
+			ExitCode = RegEnumValue(native_handle(), static_cast<DWORD>(Index), Buffer.data(), &RetSize, nullptr, &Value.m_Type, nullptr, nullptr);
 			if (ExitCode == ERROR_SUCCESS)
 			{
-				Value.m_Name.assign(Buffer.get(), RetSize);
+				Value.m_Name.assign(Buffer.data(), RetSize);
 				Value.m_Key = this;
 			}
 		}
@@ -140,7 +143,7 @@ namespace os::reg
 
 	bool key::get(const string_view Name, string& Value) const
 	{
-		std::vector<char> Buffer;
+		bytes Buffer;
 		DWORD Type;
 		if (!query_value(native_handle(), Name, Type, Buffer) || !is_string_type(Type))
 			return false;
@@ -155,26 +158,26 @@ namespace os::reg
 
 	bool key::get(const string_view Name, unsigned int& Value) const
 	{
-		std::vector<char> Buffer;
+		bytes Buffer;
 		DWORD Type;
 		if (!query_value(native_handle(), Name, Type, Buffer) || Type != REG_DWORD)
 			return false;
 
 		Value = 0;
-		auto ValueBytes = bytes::reference(Value);
+		const auto ValueBytes = edit_bytes(Value);
 		std::copy_n(Buffer.cbegin(), std::min(Buffer.size(), ValueBytes.size()), ValueBytes.begin());
 		return true;
 	}
 
 	bool key::get(const string_view Name, unsigned long long& Value) const
 	{
-		std::vector<char> Buffer;
+		bytes Buffer;
 		DWORD Type;
 		if (!query_value(native_handle(), Name, Type, Buffer) || Type != REG_QWORD)
 			return false;
 
 		Value = 0;
-		auto ValueBytes = bytes::reference(Value);
+		const auto ValueBytes = edit_bytes(Value);
 		std::copy_n(Buffer.cbegin(), std::min(Buffer.size(), ValueBytes.size()), ValueBytes.begin());
 		return true;
 	}
@@ -189,7 +192,7 @@ namespace os::reg
 	{
 	}
 
-	void key::hkey_deleter::operator()(HKEY Key) const
+	void key::hkey_deleter::operator()(HKEY Key) const noexcept
 	{
 		// TODO: do not try to close predefined keys?
 		RegCloseKey(Key);

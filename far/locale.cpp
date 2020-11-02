@@ -29,6 +29,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "locale.hpp"
 
@@ -51,7 +54,7 @@ NIFTY_DEFINE(detail::locale, locale);
 
 namespace detail
 {
-	int locale::date_format() const
+	date_type locale::date_format() const
 	{
 		refresh();
 		return m_DateFormat;
@@ -116,8 +119,25 @@ namespace detail
 			return;
 
 		{
-			if (!os::get_locale_value(LOCALE_USER_DEFAULT, LOCALE_IDATE, m_DateFormat))
-				m_DateFormat = 0;
+			int DateFormat;
+			if (!os::get_locale_value(LOCALE_USER_DEFAULT, LOCALE_IDATE, DateFormat))
+				DateFormat = 2;
+
+			switch (DateFormat)
+			{
+			case 0:
+				m_DateFormat = date_type::mdy;
+				break;
+
+			case 1:
+				m_DateFormat = date_type::dmy;
+				break;
+
+			case 2:
+			default:
+				m_DateFormat = date_type::ymd;
+				break;
+			}
 		}
 
 		{
@@ -127,7 +147,7 @@ namespace detail
 				m_DigitsGrouping = 0;
 				for (const auto i: Grouping)
 				{
-					if (in_range(L'1', i, L'9'))
+					if (in_closed_range(L'1', i, L'9'))
 						m_DigitsGrouping = m_DigitsGrouping * 10 + i - L'0';
 				}
 
@@ -146,15 +166,16 @@ namespace detail
 			{
 				size_t pos = 0;
 				const auto Weekday = L"ddd"sv;
+				const auto dMyg = L"dMyg"sv;
 				if (starts_with(Value, Weekday))
 				{
 					pos = Value.find_first_not_of(L'd', Weekday.size());
 					// skip separators
-					pos = Value.find_first_of(L"dMyg", pos);
+					pos = Value.find_first_of(dMyg, pos);
 				}
 
 				// find separator
-				pos = Value.find_first_not_of(L"dMyg", pos);
+				pos = Value.find_first_not_of(dMyg, pos);
 				if (pos != Value.npos)
 					m_DateSeparator = Value[pos];
 			}

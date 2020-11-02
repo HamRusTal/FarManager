@@ -7,13 +7,23 @@ FARDIR := $(dir $(COMMON_MAKEFILE))
 #DEBUG - set if a debug build is needed
 #
 
+# LD map files are unusable for tracing,
+# so we keep the symbols, objdump them and strip manually.
+# LLD, on the contrary, generates good maps and doesn't need this trickery.
+ifndef CLANG
+USE_OBJDUMP_MAPS=1
+endif
+
 ifndef DEBUG
  DIRNAME=Release
  DEBUGFLAGS=-O3 -fomit-frame-pointer -DNDEBUG
 ifeq ($(USE_LTO),1)
  DEBUGFLAGS += -flto -flto-odr-type-merging
 endif
- DEBUGLINKFLAGS=-Xlinker -s -Xlinker -x -Xlinker --gc-sections
+ DEBUGLINKFLAGS=-Xlinker --gc-sections
+ifndef USE_OBJDUMP_MAPS
+ DEBUGLINKFLAGS+=-Xlinker -s
+endif
 else
  DIRNAME=Debug
  DEBUGFLAGS=-g -D_DEBUG -D_GLIBCXX_ASSERTIONS -Wa,-mbig-obj
@@ -49,8 +59,14 @@ RM = $(UTILS_PREFIX)rm -f
 CP = $(UTILS_PREFIX)cp -f
 MV = $(UTILS_PREFIX)mv -f
 
+ifdef CLANG
+CXX = clang++
+CC = clang
+else
 CXX = $(GCC_PREFIX)g++$(DW2)
 CC = $(GCC_PREFIX)gcc$(DW2)
+endif
+
 WINDRES = $(GCC_PREFIX)windres
 DLLTOOL = $(GCC_PREFIX)dlltool
 RANLIB = $(GCC_PREFIX)ranlib
@@ -68,7 +84,7 @@ ifndef DIRBIT
  endif
 endif
 
-M4 = $(strip $(call os_name, $(TOOLS_PREFIX)m4)) -P -DFARBIT=$(DIRBIT) -DBUILD_TYPE=$(FARMANAGER_BUILD_TYPE) -DHOSTTYPE=$(HOST_TYPE)
+M4 = $(strip $(call os_name, $(TOOLS_PREFIX)m4)) -P -DFARBIT=$(DIRBIT) -DBUILD_TYPE=$(FARMANAGER_BUILD_TYPE) -DSCM_REVISION=$(FARMANAGER_SCM_REVISION) -DHOSTTYPE=$(HOST_TYPE)
 GAWK = $(strip $(call os_name, $(TOOLS_PREFIX)gawk))
 LGEN = $(WINE_CMD)$(strip $(call os_name, $(TOOLSDIR)lng.generator.exe))
 
@@ -88,7 +104,7 @@ CFLAGS += \
 -Winvalid-pch \
 -Wlogical-op \
 -Wmissing-declarations \
--Wodr \
+-Werror=odr \
 -Wredundant-decls \
 -Wundef \
 -Wno-unknown-pragmas \
@@ -97,15 +113,21 @@ CFLAGS += \
 
 CCFLAGS = $(CFLAGS)\
 -std=gnu++17 \
+-fvisibility=hidden \
+-Werror=old-style-cast \
 -Wctor-dtor-privacy \
-#-Wextra-semi \
+-Wextra-semi \
 -Wnon-virtual-dtor \
 -Woverloaded-virtual \
 -Wsuggest-override \
 -Wzero-as-null-pointer-constant \
 
-LNKFLAGS = -m$(DIRBIT) -static-libgcc -static $(DEBUGLINKFLAGS)
-LNKFLAGS += -Xlinker -Map -Xlinker $(MAP) -Xlinker --tsaware -Xlinker --dynamicbase -Xlinker --nxcompat
+LNKFLAGS = -m$(DIRBIT) -static-libgcc $(DEBUGLINKFLAGS)
+LNKFLAGS += -Xlinker --tsaware -Xlinker --dynamicbase -Xlinker --nxcompat
+ifndef USE_OBJDUMP_MAPS
+LNKFLAGS += -Xlinker -Map -Xlinker $(MAP)
+endif
+
 ifeq ($(DIRBIT),32)
  LNKFLAGS += -Xlinker --large-address-aware
  WINDRES += -F pe-i386
@@ -113,6 +135,20 @@ else
  WINDRES += -F pe-x86-64
 endif
 LNKFLAGS += -ladvapi32 -lnetapi32 -lmpr -lwinspool -lole32 -lsecur32 -lsetupapi -lpsapi -lrpcrt4 -luuid -lversion -luserenv -lcomdlg32
+
+ifdef CLANG
+ifeq ($(DIRBIT), 32)
+CLANG_TARGET = i686-pc-windows-gnu
+else
+CLANG_TARGET = x86_64-pc-windows-gnu
+endif
+CLANG_FLAGS=-target $(CLANG_TARGET) -fms-extensions -Weverything -Wno-unknown-warning-option
+CFLAGS += $(CLANG_FLAGS)
+CFLAGS += -D __FLOAT_H # 8.1 incompatibility
+LNKFLAGS += $(CLANG_FLAGS) -fuse-ld=lld -lpthread
+else
+LNKFLAGS += -static # Doesn't work with Clang (yet?)
+endif
 
 ifeq ($(findstring ----,---$(strip $(MAKEFLAGS))-),)
  MK_FLAGS := -$(strip $(MAKEFLAGS))

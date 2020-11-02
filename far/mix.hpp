@@ -49,27 +49,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //----------------------------------------------------------------------------
 
-template<class T>
-auto ToPercent(T Value, T Base)
-{
-	if (!Base)
-		return 0;
-
-	return static_cast<int>(std::numeric_limits<T>::max() / 100 > Value?
-		Value * 100 / Base :
-		Value / Base * 100);
-}
-
-template<typename T>
-T FromPercent(int Percent, T Base)
-{
-	if (!Percent)
-		return 0;
-
-	return std::numeric_limits<T>::max() / Percent > Base?
-		Base * Percent / 100 :
-		Base / 100 * Percent;
-};
+unsigned int ToPercent(unsigned long long Value, unsigned long long Base);
+unsigned long long FromPercent(unsigned int Percent, unsigned long long Base);
 
 string MakeTemp(string_view Prefix = {}, bool WithTempPath = true, string_view UserTempPath = {});
 string MakeTempInSameDir(string_view FileName);
@@ -98,10 +79,9 @@ public:
 
 void FindDataExToPluginPanelItemHolder(const os::fs::find_data& Src, PluginPanelItemHolder& Holder);
 
-void FreePluginPanelItemNames(const PluginPanelItem& Data);
+void FreePluginPanelItemData(const PluginPanelItem& Data);
 void FreePluginPanelItemUserData(HANDLE hPlugin, const UserDataItem& Data);
-void FreePluginPanelItemDescriptionOwnerAndColumns(const PluginPanelItem& Data);
-void FreePluginPanelItemsNames(const std::vector<PluginPanelItem>& Items);
+void FreePluginPanelItemsData(span<PluginPanelItem> Items);
 
 class plugin_item_list
 {
@@ -163,6 +143,6 @@ struct std::hash<UUID>
 
 void ReloadEnvironment();
 
-string version_to_string(const VersionInfo& PluginVersion);
+string version_to_string(const VersionInfo& Version);
 
 #endif // MIX_HPP_67869A41_F20D_4C95_86E1_4D598A356EE1

@@ -74,13 +74,22 @@ private:
 	{
 		auto& Element = get<cast_type>();
 		Element = std::chrono::duration_cast<cast_type>(Duration);
-		Duration -= std::chrono::duration_cast<duration_type>(Element);
+		Duration -= Element;
 	}
 };
 
 namespace chrono
 {
 	using days = std::chrono::duration<int, std::ratio_multiply<std::ratio<24>, std::chrono::hours::period>>;
+}
+
+inline namespace literals
+{
+	[[nodiscard]]
+	constexpr auto operator"" _d(unsigned long long const Value) noexcept
+	{
+		return chrono::days(Value);
+	}
 }
 
 #endif // CHRONO_HPP_D4A71D62_47D4_45B1_B667_84D6E1E31A14

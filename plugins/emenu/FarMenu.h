@@ -1,8 +1,8 @@
-#ifndef _FARMENU_H_
+﻿#ifndef _FARMENU_H_
 #define _FARMENU_H_
 
 #include <plugin.hpp>
-#include <Guiddef.h>
+#include <guiddef.h>
 
 class CFarMenu
 {

@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "hilight.hpp"
 
@@ -52,10 +55,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "colormix.hpp"
 #include "filefilterparams.hpp"
 #include "lang.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "elevation.hpp"
 #include "filefilter.hpp"
+#include "lockscrn.hpp"
 #include "global.hpp"
+#include "keyboard.hpp"
 
 // Platform:
 
@@ -72,7 +77,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace names
 {
-#define STR_INIT(x) x{L ## #x ## sv}
+#define STR_INIT(x) x = WSTRVIEW(x)
 
 	static const string_view
 		STR_INIT(NormalColor),
@@ -136,10 +141,6 @@ static void SetHighlighting(bool DeleteOld, HierarchicalConfig& cfg)
 	if (cfg.FindByName(cfg.root_key, names::Highlight))
 		return;
 
-	const auto root = cfg.CreateKey(cfg.root_key, names::Highlight);
-	if (!root)
-		return;
-
 	const auto MakeFarColor = [](int ConsoleColour)
 	{
 		auto Colour = colors::ConsoleColorToFarColor(ConsoleColour);
@@ -150,7 +151,7 @@ static void SetHighlighting(bool DeleteOld, HierarchicalConfig& cfg)
 	static const struct
 	{
 		string_view Mask;
-		DWORD IncludeAttr;
+		os::fs::attributes IncludeAttr;
 		FarColor NormalColor;
 		FarColor CursorColor;
 	}
@@ -164,19 +165,19 @@ static void SetHighlighting(bool DeleteOld, HierarchicalConfig& cfg)
 		{ L"<temp>"sv, 0,                        MakeFarColor(F_BROWN),        MakeFarColor(F_BROWN) },
 	};
 
+	const auto root = cfg.CreateKey(cfg.root_key, names::Highlight);
+
 	for (const auto& [i, Index]: enumerate(DefaultHighlighting))
 	{
-		const auto Key = cfg.CreateKey(root, names::Group + str(Index));
-		if (!Key)
-			break;
-
 		FileFilterParams Params;
 		Params.SetMask(!i.Mask.empty(), i.Mask);
 		Params.SetAttr(i.IncludeAttr != 0, i.IncludeAttr, 0);
+
+		const auto Key = cfg.CreateKey(root, names::Group + str(Index));
 		FileFilter::SaveFilter(cfg, Key.get(), Params);
 
-		cfg.SetValue(Key, names::NormalColor, bytes_view(i.NormalColor));
-		cfg.SetValue(Key, names::CursorColor, bytes_view(i.CursorColor));
+		cfg.SetValue(Key, names::NormalColor, view_bytes(i.NormalColor));
+		cfg.SetValue(Key, names::CursorColor, view_bytes(i.CursorColor));
 
 		static const std::array Default
 		{
@@ -197,7 +198,7 @@ static void SetHighlighting(bool DeleteOld, HierarchicalConfig& cfg)
 				{colors::transparent(F_BLACK)}
 			};
 
-			cfg.SetValue(Key, j, bytes_view(DefaultColor));
+			cfg.SetValue(Key, j, view_bytes(DefaultColor));
 		}
 	}
 }
@@ -220,8 +221,9 @@ static FileFilterParams LoadFilter(/*const*/ HierarchicalConfig& cfg, const Hier
 
 	for (const auto& [Color, Index]: enumerate(Colors.Color))
 	{
-		cfg.GetValue(key, names::file_color(Index), bytes::reference(Color.FileColor));
-		cfg.GetValue(key, names::mark_color(Index), bytes::reference(Color.MarkColor));
+		bytes Blob;
+		cfg.GetValue(key, names::file_color(Index), Blob) && deserialise(Blob, Color.FileColor);
+		cfg.GetValue(key, names::mark_color(Index), Blob) && deserialise(Blob, Color.MarkColor);
 	}
 
 	unsigned long long MarkChar;
@@ -263,13 +265,9 @@ void highlight::configuration::InitHighlightFiles(/*const*/ HierarchicalConfig& 
 		if (!root)
 			continue;
 
-		for (int i=0;; ++i)
+		for (const auto& Key: cfg.KeysEnumerator(root, Item.GroupName))
 		{
-			const auto key = cfg.FindByName(root, Item.GroupName + str(i));
-			if (!key)
-				break;
-
-			HiData.emplace_back(LoadFilter(cfg, key, Item.Delta + (Item.Delta == DEFAULT_SORT_GROUP? 0 : i)));
+			HiData.emplace_back(LoadFilter(cfg, Key, Item.Delta + (Item.Delta == DEFAULT_SORT_GROUP? 0 : *Item.Count)));
 			++*Item.Count;
 		}
 	}
@@ -306,7 +304,8 @@ static void ApplyBlackOnBlackColor(highlight::element::colors_array::value_type&
 			Color.ForegroundColor = colors::alpha_value(Color.ForegroundColor) | colors::color_value(Base.ForegroundColor);
 			Color.Flags &= FCF_EXTENDEDFLAGS;
 			Color.Flags |= Base.Flags;
-			Color.Reserved = Base.Reserved;
+			Color.Reserved[0] = Base.Reserved[0];
+			Color.Reserved[1] = Base.Reserved[1];
 		}
 	};
 
@@ -432,7 +431,7 @@ int highlight::configuration::GetGroup(const FileListItem& Object, const FileLis
 	return It != End? It->GetSortGroup() : DEFAULT_SORT_GROUP;
 }
 
-void highlight::configuration::FillMenu(VMenu2 *HiMenu,int MenuPos)
+void highlight::configuration::FillMenu(VMenu2 *HiMenu,int MenuPos) const
 {
 	HiMenu->clear();
 
@@ -532,7 +531,8 @@ int highlight::configuration::MenuPosToRealPos(int MenuPos, int*& Count, bool In
 
 void highlight::configuration::UpdateHighlighting(bool RefreshMasks)
 {
-	Global->ScrBuf->Lock(); // отменяем всякую прорисовку
+	SCOPED_ACTION(LockScreen);
+
 	ProcessGroups();
 
 	if (RefreshMasks)
@@ -548,16 +548,15 @@ void highlight::configuration::UpdateHighlighting(bool RefreshMasks)
 	Global->CtrlObject->Cp()->LeftPanel()->Redraw();
 	Global->CtrlObject->Cp()->RightPanel()->Update(UPDATE_KEEP_SELECTION);
 	Global->CtrlObject->Cp()->RightPanel()->Redraw();
-	Global->ScrBuf->Unlock(); // разрешаем прорисовку
 }
 
 void highlight::configuration::HiEdit(int MenuPos)
 {
 	const auto HiMenu = VMenu2::create(msg(lng::MHighlightTitle), {}, ScrY - 4);
 	HiMenu->SetHelp(L"HighlightList"sv);
-	HiMenu->SetMenuFlags(VMENU_WRAPMODE | VMENU_SHOWAMPERSAND);
+	HiMenu->SetMenuFlags(VMENU_WRAPMODE);
 	HiMenu->SetPosition({ -1, -1, 0, 0 });
-	HiMenu->SetBottomTitle(msg(lng::MHighlightBottom));
+	HiMenu->SetBottomTitle(KeysToLocalizedText(KEY_INS, KEY_DEL, KEY_F4, KEY_F5, KEY_CTRLUP, KEY_CTRLDOWN, KEY_CTRLR));
 	HiMenu->SetId(HighlightMenuId);
 	FillMenu(HiMenu.get(), MenuPos);
 	bool NeedUpdate = false;
@@ -791,8 +790,8 @@ static void SaveFilter(HierarchicalConfig& cfg, const HierarchicalConfig::key& k
 
 	for (const auto& [Color, Index]: enumerate(Colors.Color))
 	{
-		cfg.SetValue(key, names::file_color(Index), bytes_view(Color.FileColor));
-		cfg.SetValue(key, names::mark_color(Index), bytes_view(Color.MarkColor));
+		cfg.SetValue(key, names::file_color(Index), view_bytes(Color.FileColor));
+		cfg.SetValue(key, names::mark_color(Index), view_bytes(Color.MarkColor));
 	}
 
 	cfg.SetValue(key, names::MarkChar, MAKELONG(Colors.Mark.Char, MAKEWORD(Colors.Mark.Transparent? 0xff : 0, 0)));
@@ -810,15 +809,11 @@ void highlight::configuration::Save(bool always)
 
 	SCOPED_ACTION(auto)(cfg->ScopedTransaction());
 
-	auto root = cfg->FindByName(cfg->root_key, names::Highlight);
+	if (const auto Key = cfg->FindByName(cfg->root_key, names::Highlight))
+		cfg->DeleteKeyTree(Key);
 
-	if (root)
-		cfg->DeleteKeyTree(root);
-
-	root = cfg->FindByName(cfg->root_key, names::SortGroups);
-
-	if (root)
-		cfg->DeleteKeyTree(root);
+	if (const auto Key = cfg->FindByName(cfg->root_key, names::SortGroups))
+		cfg->DeleteKeyTree(Key);
 
 	const struct
 	{
@@ -837,15 +832,11 @@ void highlight::configuration::Save(bool always)
 
 	for(const auto& i: Data)
 	{
-		root = cfg->CreateKey(cfg->root_key, i.KeyName);
-		if (!root)
-			continue; // TODO: log
+		const auto root = cfg->CreateKey(cfg->root_key, i.KeyName);
 
 		for (int j = i.from; j != i.to; ++j)
 		{
-			if (const auto Key = cfg->CreateKey(root, i.GroupName + str(j - i.from)))
-				SaveFilter(*cfg, Key, &HiData[j]);
-			// TODO: log
+			SaveFilter(*cfg, cfg->CreateKey(root, i.GroupName + str(j - i.from)), &HiData[j]);
 		}
 	}
 }

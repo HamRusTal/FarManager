@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "palette.hpp"
 
@@ -206,6 +209,7 @@ Init[]=
 	{L"WarnDialog.DefaultButton.Highlight.Selected"sv, F_YELLOW|B_LIGHTGRAY,   F_WHITE|B_BLACK,       }, // COL_WARNDIALOGHIGHLIGHTSELECTEDDEFAULTBUTTON,
 };
 
+static_assert(std::size(Init) == COL_LASTPALETTECOLOR);
 
 palette::palette():
 	CurrentPalette(std::size(Init))

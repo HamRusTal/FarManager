@@ -64,16 +64,17 @@ public:
 	int GetType() const override { return windowtype_menu; }
 	bool ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent) override;
 	void SetPosition(rectangle Where) override;
+	intptr_t SendMessage(intptr_t Msg,intptr_t Param1,void* Param2) override;
 
 	void Resize(bool force=false);
 	void SetTitle(const string& Title);
 	void SetBottomTitle(const string& Title);
 	void SetBoxType(int BoxType);
 	void SetMenuFlags(DWORD Flags);
-	void AssignHighlights(int Reverse);
+	void AssignHighlights(bool Reverse = false);
 	void clear();
 	int DeleteItem(int ID,int Count=1);
-	int AddItem(const MenuItemEx& NewItem,int PosAdd=0x7FFFFFFF);
+	int AddItem(const MenuItemEx& NewItem,int PosAdd = std::numeric_limits<int>::max());
 	int AddItem(const FarList *NewItem);
 	int AddItem(const string& NewStrItem);
 	int FindItem(int StartIndex, const string& Pattern, unsigned long long Flags = 0);
@@ -81,7 +82,7 @@ public:
 	bool empty() { return !size(); }
 	int GetSelectPos();
 	int SetSelectPos(int Pos, int Direct=0/*, bool stop_on_edge=false*/);
-	int GetCheck(int Position=-1);
+	wchar_t GetCheck(int Position=-1);
 	void SetCheck(int Position=-1);
 	void SetCustomCheck(wchar_t Char, int Position = -1);
 	void ClearCheck(int Position = -1);
@@ -132,13 +133,20 @@ private:
 	string GetMenuTitle(bool bottom = false);
 	VMenu& ListBox() const { return *GetAllItem()[0].ListPtr; }
 
+	enum class box_type
+	{
+		full,
+		thin,
+		none
+	};
+
+	box_type m_BoxType{ box_type::full };
 	int MaxHeight;
 	int cancel;
 	int m_X1;
 	int m_Y1;
 	int m_X2;
 	int m_Y2;
-	bool ShortBox;
 	INPUT_RECORD DefRec;
 	int InsideCall;
 	bool NeedResize;

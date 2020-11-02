@@ -9,7 +9,7 @@ skip_non_tags: false
 
 max_jobs: 8
 
-image: Visual Studio 2017
+image: Visual Studio 2019
 
 init:
 
@@ -22,10 +22,7 @@ install:
   #update AppVeyor build number to match Far build number
   - cd far && for /f "tokens=1,2,4 delims=, " %%i in ('tools\m4 -P farversion.inc.m4') do appveyor UpdateBuild -Version %%i.%%j.%%k.%APPVEYOR_BUILD_NUMBER% && cd ..
   #clone NetBox
-  - git clone https://github.com/michaellukashov/Far-NetBox.git 
-  - cd Far-NetBox
-  - git checkout far3
-  - cd ..
+  - git clone https://github.com/FarGroup/Far-NetBox.git
   #clone and build Colorer-schemes
   - git clone https://github.com/colorer/Colorer-schemes.git
   - cd Colorer-schemes
@@ -90,10 +87,13 @@ build_script:
   #build Lua MacroAPI docs
   - enc/tools/tool.make_lua_chm.bat
   #set vs environment variables
-  - call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars%bit%.bat"
+  - call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars%bit%.bat"
+  #print version
+  - cl
   #build far
   - cd far 
   - set FARMANAGER_BUILD_TYPE=VS_RELEASE
+  - set FARMANAGER_SCM_REVISION=%APPVEYOR_REPO_COMMIT%
   - nmake /f makefile_vc %ADD_MAKE%
   - nmake /f makefile_vc install INSTALLDIR=..\ci\%configuration%.%platform% %ADD_MAKE%
   - update_headers.bat nocommit
@@ -130,17 +130,19 @@ build_script:
   - set PROJECT_BUILD=Build
   - set PROJECT_CONF=%platform%
   - set PROJECT_PLATFORM=Win32
+  - set COLORER_WIN64_BUILD=ON
   - if "%platform%" == "x64" set PROJECT_PLATFORM=x64
+  - if "%platform%" == "x64" set COLORER_WIN64_BUILD=OFF
   - cd FarColorer
   - mkdir build\%configuration%\%platform%
   - cd build\%configuration%\%platform%
-  - cmake -G "NMake Makefiles" -D PROJECT_ROOT=%PROJECT_ROOT% -D CMAKE_BUILD_TYPE=%PROJECT_CONFIG% -D CONF=%PROJECT_CONF% %PROJECT_ROOT%\src
+  - cmake -G "NMake Makefiles" -D CMAKE_BUILD_TYPE=%PROJECT_CONFIG% -D COLORER_WIN64_BUILD=%COLORER_WIN64_BUILD% %PROJECT_ROOT%
   - nmake
   - cd ..\..\..\..
   - mkdir ci\%configuration%.%platform%\Plugins\FarColorer\base
   - xcopy /e /q /y /k Colorer-schemes\build\basefar\* ci\%configuration%.%platform%\Plugins\FarColorer\base
   - mkdir ci\%configuration%.%platform%\Plugins\FarColorer\bin
-  - copy /Y FarColorer\build\%configuration%\%platform%\colorer.* ci\%configuration%.%platform%\Plugins\FarColorer\bin
+  - copy /Y FarColorer\build\%configuration%\%platform%\src\colorer.* ci\%configuration%.%platform%\Plugins\FarColorer\bin
   - copy /Y FarColorer\docs\history.ru.txt ci\%configuration%.%platform%\Plugins\FarColorer
   - copy /Y FarColorer\LICENSE ci\%configuration%.%platform%\Plugins\FarColorer
   - copy /Y FarColorer\README.md ci\%configuration%.%platform%\Plugins\FarColorer
@@ -167,10 +169,11 @@ after_build:
   #set NAME_PREFIX variable as otherwise it is not available when artifacts are collected
   - set NAME_PREFIX="Far%NAME_ADD%.%platform%.%appveyor_build_version%.%APPVEYOR_REPO_COMMIT%"
   - appveyor SetVariable -Name NAME_PREFIX -Value "%NAME_PREFIX%"
+  #save artifacts only for release as we keep on reaching the appveyor limit
   #archive PDBs
-  - 7z a -ir!*.pdb "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.pdb.7z"
+  - if "%configuration%" == "Release" 7z a -ir!*.pdb "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.pdb.7z"
   #archive Far without PDBs
-  - 7z a -xr!*.pdb "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.7z"
+  - if "%configuration%" == "Release" 7z a -xr!*.pdb "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.7z"
   - cd ..\..
   #create msi
   - cd misc\msi-installer
@@ -179,7 +182,7 @@ after_build:
   - genparams %APPVEYOR_BUILD_FOLDER%\ci\%configuration%.%platform% %platform%
   - nmake -nologo %ADD_MAKE_MSI%
   - cd ..\..
-  - move ci\%configuration%.%platform%\final.msi "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.msi"
+  - if "%configuration%" == "Release" move ci\%configuration%.%platform%\final.msi "%APPVEYOR_BUILD_FOLDER%\%NAME_PREFIX%.msi"
 
 artifacts:
   - path: $(NAME_PREFIX).7z
@@ -190,6 +193,7 @@ artifacts:
     name: Far Manager PDBs
 
 deploy:
+  tag: ci/v$(appveyor_build_version)
   release: v$(appveyor_build_version)
   description: 'Far Manager $(appveyor_build_version) - $(APPVEYOR_REPO_COMMIT)'
   provider: GitHub

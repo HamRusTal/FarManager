@@ -32,9 +32,11 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Internal:
 #include "keys.hpp"
-#include "chgprior.hpp"
 #include "farcolor.hpp"
 #include "filepanels.hpp"
 #include "panel.hpp"
@@ -69,6 +71,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "new_handler.hpp"
 #include "global.hpp"
 #include "locale.hpp"
+#include "farversion.hpp"
+#include "exception.hpp"
 
 // Platform:
 #include "platform.env.hpp"
@@ -80,10 +84,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "common/range.hpp"
 #include "common/scope_exit.hpp"
 #include "common/string_utils.hpp"
+#include "common/uuid.hpp"
 
 // External:
 
-//----------------------------------------------------------------------------
 
 #ifdef ENABLE_TESTS
 #define TESTS_ENTRYPOINT_ONLY
@@ -91,12 +95,13 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #undef TESTS_ENTRYPOINT_ONLY
 #endif
 
+//----------------------------------------------------------------------------
+
 global *Global = nullptr;
 
 static void show_help()
 {
 	static const auto HelpMsg =
-		L"\n"
 		L"Usage: far [switches] [apath [ppath]]\n\n"
 		L"where\n"
 		L"  apath - path to a folder (or a file or an archive or command with prefix)\n"
@@ -107,7 +112,7 @@ static void show_help()
 		L" -?   This help.\n"
 		L" -clearcache [profilepath [localprofilepath]]\n"
 		L"      Clear plugins cache.\n"
-		L" -co  Forces FAR to load plugins from the cache only.\n"
+		L" -co  Load plugins from the cache only.\n"
 #ifdef DIRECT_RT
 		L" -do  Direct output.\n"
 #endif
@@ -136,12 +141,13 @@ static void show_help()
 #ifndef NO_WRAPPER
 		L" -u <username>\n"
 		L"      Allows to have separate registry settings for different users.\n"
-		L"      Affects only 1.x Far Manager plugins.\n"
+		L"      Affects only Far Manager 1.x plugins.\n"
 #endif // NO_WRAPPER
 		L" -v <filename>\n"
 		L"      View the specified file. If <filename> is -, data is read from the stdin.\n"
 		L" -w[-] Stretch to console window instead of console buffer or vise versa.\n"
-		""sv;
+		L" -x   Disable exception handling.\n"
+		L""sv;
 
 	std::wcout << HelpMsg << std::flush;
 }
@@ -155,8 +161,6 @@ static int MainProcess(
     int StartChar
 )
 {
-		SCOPED_ACTION(ChangePriority)(THREAD_PRIORITY_NORMAL);
-
 		FarColor InitAttributes;
 		if (!console.GetTextAttributes(InitAttributes))
 			InitAttributes = colors::ConsoleColorToFarColor(F_LIGHTGRAY | B_BLACK);
@@ -226,7 +230,7 @@ static int MainProcess(
 
 				bool Root = false;
 				const auto Type = ParsePath(strPath, nullptr, &Root);
-				if(Root && (Type == root_type::drive_letter || Type == root_type::unc_drive_letter || Type == root_type::volume))
+				if(Root && (Type == root_type::drive_letter || Type == root_type::win32nt_drive_letter || Type == root_type::volume))
 				{
 					AddEndSlash(strPath);
 				}
@@ -321,7 +325,7 @@ static int MainProcess(
 		Global->ScrBuf->ResetLockCount();
 		Global->ScrBuf->Flush();
 
-		return 0;
+		return EXIT_SUCCESS;
 }
 
 static void InitTemplateProfile(string &strTemplatePath)
@@ -405,7 +409,7 @@ static void InitProfile(string &strProfilePath, string &strLocalProfilePath)
 		if (!SingleProfile)
 			CreatePath(path::join(Global->Opt->LocalProfilePath, L"PluginsData"sv), true);
 
-		const auto RandomName = GuidToStr(CreateUuid());
+		const auto RandomName = uuid::str(os::uuid::generate());
 
 		if (!os::fs::can_create_file(path::join(Global->Opt->ProfilePath, RandomName)) ||
 			(!SingleProfile && !os::fs::can_create_file(path::join(Global->Opt->LocalProfilePath, RandomName))))
@@ -415,20 +419,19 @@ static void InitProfile(string &strProfilePath, string &strLocalProfilePath)
 	}
 }
 
-static bool ProcessServiceModes(span<const wchar_t* const> const Args, int& ServiceResult)
+static std::optional<int> ProcessServiceModes(span<const wchar_t* const> const Args)
 {
 	const auto isArg = [](const wchar_t* Arg, string_view const Name)
 	{
 		return (*Arg == L'/' || *Arg == L'-') && equal_icase(Arg + 1, Name);
 	};
 
-	if (Args.size() == 4 && IsElevationArgument(Args[0])) // /service:elevation {GUID} PID UsePrivileges
+	if (Args.size() == 4 && IsElevationArgument(Args[0])) // /service:elevation {UUID} PID UsePrivileges
 	{
-		ServiceResult = ElevationMain(Args[1], std::wcstoul(Args[2], nullptr, 10), *Args[3] == L'1');
-		return true;
+		return ElevationMain(Args[1], std::wcstoul(Args[2], nullptr, 10), *Args[3] == L'1');
 	}
 
-	if (in_range(2u, Args.size(), 5u) && (isArg(Args[0], L"export"sv) || isArg(Args[0], L"import"sv)))
+	if (in_closed_range(2u, Args.size(), 5u) && (isArg(Args[0], L"export"sv) || isArg(Args[0], L"import"sv)))
 	{
 		const auto Export = isArg(Args[0], L"export"sv);
 		string strProfilePath(Args.size() > 2? Args[2] : L""sv), strLocalProfilePath(Args.size() > 3 ? Args[3] : L""), strTemplatePath(Args.size() > 4 ? Args[4] : L"");
@@ -436,21 +439,19 @@ static bool ProcessServiceModes(span<const wchar_t* const> const Args, int& Serv
 		InitProfile(strProfilePath, strLocalProfilePath);
 		Global->m_ConfigProvider = new config_provider(Export? config_provider::mode::m_export : config_provider::mode::m_import);
 		ConfigProvider().ServiceMode(Args[1]);
-		ServiceResult = 0;
-		return true;
+		return EXIT_SUCCESS;
 	}
 
-	if (in_range(1u, Args.size(), 3u) && isArg(Args[0], L"clearcache"sv))
+	if (in_closed_range(1u, Args.size(), 3u) && isArg(Args[0], L"clearcache"sv))
 	{
 		string strProfilePath(Args.size() > 1? Args[1] : L""sv);
 		string strLocalProfilePath(Args.size() > 2? Args[2] : L""sv);
 		InitProfile(strProfilePath, strLocalProfilePath);
 		(void)config_provider{config_provider::clear_cache{}};
-		ServiceResult = 0;
-		return true;
+		return EXIT_SUCCESS;
 	}
 
-	return false;
+	return {};
 }
 
 static void UpdateErrorMode()
@@ -463,6 +464,15 @@ static void UpdateErrorMode()
 	}
 
 	os::set_error_mode(Global->ErrorMode);
+}
+
+[[noreturn]]
+static int handle_exception(function_ref<bool()> const Handler)
+{
+	if (Handler())
+		std::_Exit(EXIT_FAILURE);
+
+	throw;
 }
 
 static int mainImpl(span<const wchar_t* const> const Args)
@@ -480,7 +490,7 @@ static int mainImpl(span<const wchar_t* const> const Args)
 
 	RegisterTestExceptionsHook();
 
-	os::EnableLowFragmentationHeap();
+	os::memory::enable_low_fragmentation_heap();
 
 	if(!console.IsFullscreenSupported())
 	{
@@ -506,11 +516,8 @@ static int mainImpl(span<const wchar_t* const> const Args)
 	else
 		os::env::del(L"FARADMINMODE"sv);
 
-	{
-		int ServiceResult;
-		if (ProcessServiceModes(Args, ServiceResult))
-			return ServiceResult;
-	}
+	if (const auto Result = ProcessServiceModes(Args))
+		return *Result;
 
 	SCOPED_ACTION(listener)(update_environment, &ReloadEnvironment);
 	SCOPED_ACTION(listener)(update_intl, [] { locale.invalidate(); });
@@ -652,9 +659,9 @@ static int mainImpl(span<const wchar_t* const> const Args)
 
 				case L'?':
 				case L'H':
-					ControlObject::ShowCopyright(1);
+					ControlObject::ShowVersion();
 					show_help();
-					return 0;
+					return EXIT_SUCCESS;
 
 #ifdef DIRECT_RT
 				case L'D':
@@ -666,11 +673,11 @@ static int mainImpl(span<const wchar_t* const> const Args)
 					{
 						if(Arg[2] == L'-')
 						{
-							Global->Opt->WindowMode= false;
+							Global->Opt->WindowMode = false;
 						}
 						else if(!Arg[2])
 						{
-							Global->Opt->WindowMode= true;
+							Global->Opt->WindowMode = true;
 						}
 					}
 					break;
@@ -756,92 +763,100 @@ static int mainImpl(span<const wchar_t* const> const Args)
 
 	NoElevationDuringBoot.reset();
 
-	try
+	const auto CurrentFunctionName = __FUNCTION__;
+
+	return cpp_try(
+	[&]
 	{
 		return MainProcess(strEditName, strViewName, DestNames[0], DestNames[1], StartLine, StartChar);
-	}
-	catch (const std::exception& e)
+	},
+	[&]() -> int
 	{
-		if (ProcessStdException(e, L"mainImpl"sv))
-			std::_Exit(EXIT_FAILURE);
-		throw;
-	}
-	catch (...)
+		handle_exception([&]{ return handle_unknown_exception(CurrentFunctionName); });
+	},
+	[&](std::exception const& e) -> int
 	{
-		if (ProcessUnknownException(L"mainImpl"sv))
-			std::_Exit(EXIT_FAILURE);
-		throw;
+		handle_exception([&]{ return handle_std_exception(e, CurrentFunctionName); });
+	});
+}
+
+static void configure_exception_handling(int Argc, const wchar_t* const Argv[])
+{
+	for (const auto& i : span(Argv + 1, Argc - 1))
+	{
+		if ((i[0] == L'/' || i[0] == L'-') && upper(i[1]) == L'X' && !i[2])
+		{
+			disable_exception_handling();
+			return;
+		}
 	}
 }
 
-//#define DEBUG_TESTS
-
-static int wmain_seh(int Argc, const wchar_t* const Argv[])
+[[noreturn]]
+static int handle_exception_final(function_ref<bool()> const Handler)
 {
+	if (Handler())
+		std::_Exit(EXIT_FAILURE);
+
+	restore_system_exception_handler();
+	throw;
+}
+
+static int wmain_seh()
+{
+	// wmain is a non-standard extension and not available in gcc.
+	int Argc = 0;
+	const os::memory::local::ptr Argv(CommandLineToArgvW(GetCommandLine(), &Argc));
+
 #ifdef ENABLE_TESTS
-	if (Argc > 1 && Argv[1] == L"/service:test"sv)
+	if (const auto Result = testing_main(Argc, Argv.get()))
 	{
-#ifdef DEBUG_TESTS
-		return 0;
-#else
-		return testing_main(true, Argc, Argv);
-#endif
+		return *Result;
 	}
-
-#ifdef DEBUG_TESTS
-	return testing_main(false, Argc, Argv);
-#endif
 #endif
 
-#if defined(SYSLOG)
-	atexit(PrintSysLogStat);
-#endif
+	configure_exception_handling(Argc, Argv.get());
 
 	SCOPED_ACTION(unhandled_exception_filter);
+	SCOPED_ACTION(seh_terminate_handler);
 	SCOPED_ACTION(new_handler);
 
-	try
-	{
-		return mainImpl({ Argv + 1, Argv + Argc });
-	}
-	catch (const far_known_exception& e)
-	{
-		std::wcerr << e.what() << std::endl;
-		return 1;
-	}
-	catch (const std::exception& e)
-	{
-		if (ProcessStdException(e, L"wmain_seh"sv))
-			std::_Exit(EXIT_FAILURE);
+	const auto CurrentFunctionName = __FUNCTION__;
 
-		unhandled_exception_filter::dismiss();
-		RestoreGPFaultUI();
-		throw;
-	}
-	catch (...)
+	return cpp_try(
+	[&]
 	{
-		if (ProcessUnknownException(L"wmain_seh"sv))
-			std::_Exit(EXIT_FAILURE);
-
-		unhandled_exception_filter::dismiss();
-		RestoreGPFaultUI();
-		throw;
-	}
+		try
+		{
+			return mainImpl({ Argv.get() + 1, Argv.get() + Argc });
+		}
+		catch (const far_known_exception& e)
+		{
+			std::wcout << build::version_string() << L'\n' << std::endl;
+			std::wcerr << e.message() << std::endl;
+			return EXIT_FAILURE;
+		}
+	},
+	[&]() -> int
+	{
+		handle_exception_final([&]{ return handle_unknown_exception(CurrentFunctionName); });
+	},
+	[&](std::exception const& e) -> int
+	{
+		handle_exception_final([&]{ return handle_std_exception(e, CurrentFunctionName); });
+	});
 }
 
 int main()
 {
-	return seh_invoke_with_ui(
+	return seh_try_with_ui(
 	[]
 	{
-		// wmain is a non-standard extension and not available in gcc.
-		int Argc;
-		const os::memory::local::ptr Argv(CommandLineToArgvW(GetCommandLine(), &Argc));
-		return wmain_seh(Argc, Argv.get());
+		return wmain_seh();
 	},
 	[]() -> int
 	{
 		std::_Exit(EXIT_FAILURE);
 	},
-	L"main"sv);
+	__FUNCTION__);
 }

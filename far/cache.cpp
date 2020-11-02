@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "cache.hpp"
 
@@ -172,7 +175,7 @@ bool CachedRead::FillBuffer()
 	if (m_File.GetSize(FileSize) && Pointer - Shift + m_Buffer.size() > FileSize)
 		ReadSize = FileSize - Pointer + Shift;
 
-	auto Result = m_File.Read(m_Buffer.data(), ReadSize, m_ReadSize);
+	const auto Result = m_File.Read(m_Buffer.data(), ReadSize, m_ReadSize);
 	if (Result)
 	{
 		if (m_ReadSize > static_cast<size_t>(Shift))

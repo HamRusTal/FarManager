@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "keybar.hpp"
 
@@ -94,7 +97,21 @@ void KeyBar::DisplayObject()
 	if (KeyWidth<8)
 		KeyWidth=8;
 
-	int LabelWidth=KeyWidth-2;
+	const auto LabelWidth = KeyWidth - 2;
+
+	static const std::array Mapping
+	{
+		std::pair{ &FarKeyboardState::NonePressed,             KBL_MAIN         },
+		std::pair{ &FarKeyboardState::OnlyAltPressed,          KBL_ALT          },
+		std::pair{ &FarKeyboardState::OnlyCtrlPressed,         KBL_CTRL         },
+		std::pair{ &FarKeyboardState::OnlyShiftPressed,        KBL_SHIFT        },
+		std::pair{ &FarKeyboardState::OnlyCtrlAltPressed,      KBL_CTRLALT      },
+		std::pair{ &FarKeyboardState::OnlyAltShiftPressed,     KBL_ALTSHIFT     },
+		std::pair{ &FarKeyboardState::OnlyCtrlShiftPressed,    KBL_CTRLSHIFT    },
+		std::pair{ &FarKeyboardState::OnlyCtrlAltShiftPressed, KBL_CTRLALTSHIFT },
+	};
+
+	static_assert(std::size(Mapping) == KBL_GROUP_COUNT);
 
 	for (size_t i=0; i<KEY_COUNT; i++)
 	{
@@ -104,20 +121,6 @@ void KeyBar::DisplayObject()
 		SetColor(COL_KEYBARNUM);
 		Text(str(i + 1));
 		SetColor(COL_KEYBARTEXT);
-
-		static const std::pair<bool(FarKeyboardState::*)() const, keybar_group> Mapping[] =
-		{
-			{ &FarKeyboardState::NonePressed, KBL_MAIN },
-			{ &FarKeyboardState::OnlyAltPressed, KBL_ALT },
-			{ &FarKeyboardState::OnlyCtrlPressed, KBL_CTRL },
-			{ &FarKeyboardState::OnlyShiftPressed, KBL_SHIFT },
-			{ &FarKeyboardState::OnlyCtrlAltPressed, KBL_CTRLALT },
-			{ &FarKeyboardState::OnlyAltShiftPressed, KBL_ALTSHIFT },
-			{ &FarKeyboardState::OnlyCtrlShiftPressed, KBL_CTRLSHIFT },
-			{ &FarKeyboardState::OnlyCtrlAltShiftPressed, KBL_CTRLALTSHIFT },
-		};
-
-		static_assert(std::size(Mapping) == KBL_GROUP_COUNT);
 
 		const auto State = std::find_if(ALL_CONST_RANGE(Mapping), [&](const auto& Item) { return std::invoke(Item.first, IntKeyState); });
 		// State should always be valid so check is excessive, but style is style
@@ -157,7 +160,7 @@ void KeyBar::DisplayObject()
 		}
 	}
 
-	int Width = m_Where.right - WhereX() + 1;
+	const auto Width = m_Where.right - WhereX() + 1;
 
 	if (Width>0)
 	{
@@ -191,23 +194,23 @@ void KeyBar::SetLabels(lng StartIndex)
 	}
 }
 
-static int FnGroup(DWORD ControlState)
+static int FnGroup(unsigned ControlState)
 {
 	static const struct
 	{
-		DWORD Group;
-		DWORD ControlState;
+		unsigned Group;
+		unsigned ControlState;
 	}
-	Area[] =
+	Area[]
 	{
-		{KBL_MAIN, 0},
-		{KBL_SHIFT, KEY_SHIFT},
-		{KBL_ALT, KEY_ALT},
-		{KBL_CTRL, KEY_CTRL},
-		{KBL_ALTSHIFT, KEY_ALTSHIFT},
-		{KBL_CTRLSHIFT, KEY_CTRLSHIFT},
-		{KBL_CTRLALT, KEY_CTRLALT},
-		{KBL_CTRLALTSHIFT, KEY_CTRLALT|KEY_SHIFT}
+		{ KBL_MAIN,           0                       },
+		{ KBL_SHIFT,          KEY_SHIFT               },
+		{ KBL_ALT,            KEY_ALT                 },
+		{ KBL_CTRL,           KEY_CTRL                },
+		{ KBL_ALTSHIFT,       KEY_ALTSHIFT            },
+		{ KBL_CTRLSHIFT,      KEY_CTRLSHIFT           },
+		{ KBL_CTRLALT,        KEY_CTRLALT             },
+		{ KBL_CTRLALTSHIFT,   KEY_CTRLALT | KEY_SHIFT },
 	};
 	static_assert(std::size(Area) == KBL_GROUP_COUNT);
 
@@ -241,9 +244,12 @@ void KeyBar::SetCustomLabels(KEYBARAREA Area)
 		CustomArea = Area;
 		ClearKeyTitles(true);
 
-		for (auto& [Name, Value]: ConfigProvider().GeneralCfg()->ValuesEnumerator<string>(concat(L"KeyBarLabels."sv, strLanguage, L'.', Names[Area])))
+		for (const auto& [Name, Value]: ConfigProvider().GeneralCfg()->ValuesEnumerator<string>(concat(L"KeyBarLabels."sv, strLanguage, L'.', Names[Area])))
 		{
 			const auto Key = KeyNameToKey(Name);
+			if (!Key)
+				continue;
+
 			const auto fnum = (Key & ~KEY_CTRLMASK) - KEY_F1;
 			if (fnum < KEY_COUNT)
 			{
@@ -295,12 +301,9 @@ bool KeyBar::ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent)
 	if (!m_Where.contains(MouseEvent->dwMousePosition))
 		return false;
 
-	int KeyWidth = (m_Where.width() - 2) / 12;
+	int const KeyWidth = std::max(8, (m_Where.width() - 2) / 12);
 
-	if (KeyWidth<8)
-		KeyWidth=8;
-
-	int X = MouseEvent->dwMousePosition.X - m_Where.left;
+	const auto X = MouseEvent->dwMousePosition.X - m_Where.left;
 
 	if (X<KeyWidth*9)
 		Key=X/KeyWidth;
@@ -368,27 +371,37 @@ void KeyBar::RedrawIfChanged()
 
 size_t KeyBar::Change(const KeyBarTitles *Kbt)
 {
-	size_t Result = 0;
-	if (Kbt)
-	{
-		for (const auto& i: span(Kbt->Labels, Kbt->CountLabels))
-		{
-			DWORD Pos = i.Key.VirtualKeyCode - VK_F1;
-			if (Pos < KEY_COUNT)
-			{
-				DWORD Shift = 0, Flags = i.Key.ControlKeyState;
-				if (Flags & (LEFT_CTRL_PRESSED|RIGHT_CTRL_PRESSED)) Shift |= KEY_CTRL;
-				if (Flags & (LEFT_ALT_PRESSED|RIGHT_ALT_PRESSED)) Shift |= KEY_ALT;
-				if (Flags & SHIFT_PRESSED) Shift |= KEY_SHIFT;
+	if (!Kbt)
+		return 0;
 
-				int group = FnGroup(Shift);
-				if (group >= 0)
-				{
-					Items[group][Pos].first = NullToEmpty(i.Text);
-					++Result;
-				}
-			}
-		}
+	size_t Result = 0;
+
+	for (const auto& i: span(Kbt->Labels, Kbt->CountLabels))
+	{
+		if (i.Key.VirtualKeyCode < VK_F1 || i.Key.VirtualKeyCode >= VK_F1 + KEY_COUNT)
+			continue;
+
+		const auto Pos = i.Key.VirtualKeyCode - VK_F1;
+
+		unsigned Shift = 0;
+		const auto Flags = i.Key.ControlKeyState;
+
+		if (Flags & (LEFT_CTRL_PRESSED|RIGHT_CTRL_PRESSED))
+			Shift |= KEY_CTRL;
+
+		if (Flags & (LEFT_ALT_PRESSED|RIGHT_ALT_PRESSED))
+			Shift |= KEY_ALT;
+
+		if (Flags & SHIFT_PRESSED)
+			Shift |= KEY_SHIFT;
+
+		const auto Group = FnGroup(Shift);
+		if (Group < 0)
+			continue;
+
+		Items[Group][Pos].first = NullToEmpty(i.Text);
+		++Result;
 	}
+
 	return Result;
 }

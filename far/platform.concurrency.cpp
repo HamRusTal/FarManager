@@ -30,10 +30,14 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "platform.concurrency.hpp"
 
 // Internal:
+#include "exception.hpp"
 #include "imports.hpp"
 #include "pathmix.hpp"
 
@@ -80,9 +84,21 @@ namespace os::concurrency
 
 	thread::~thread()
 	{
-		if (joinable())
+		if (!joinable())
+			return;
+
+		switch (m_Mode)
 		{
-			std::invoke(m_Mode, this);
+		case mode::join:
+			join();
+			return;
+
+		case mode::detach:
+			detach();
+			return;
+
+		default:
+			UNREACHABLE;
 		}
 	}
 
@@ -117,6 +133,14 @@ namespace os::concurrency
 			throw MAKE_FAR_FATAL_EXCEPTION(L"Thread is not joinable"sv);
 	}
 
+	void thread::starter_impl(proc_type Proc, void* Param)
+	{
+		reset(reinterpret_cast<HANDLE>(_beginthreadex(nullptr, 0, Proc, Param, 0, &m_ThreadId)));
+
+		if (!*this)
+			throw MAKE_FAR_FATAL_EXCEPTION(L"Can't create thread"sv);
+	}
+
 
 	mutex::mutex(string_view const Name):
 		handle(CreateMutex(nullptr, false, EmptyToNull(null_terminated(Name))))
@@ -142,6 +166,20 @@ namespace os::concurrency
 
 	namespace detail
 	{
+		class i_shared_mutex
+		{
+		public:
+			virtual ~i_shared_mutex() = default;
+			virtual void lock() = 0;
+			[[nodiscard]]
+			virtual bool try_lock() = 0;
+			virtual void unlock() = 0;
+			virtual void lock_shared() = 0;
+			[[nodiscard]]
+			virtual bool try_lock_shared() = 0;
+			virtual void unlock_shared() = 0;
+		};
+
 		class shared_mutex_legacy final: public i_shared_mutex
 		{
 		public:
@@ -176,17 +214,33 @@ namespace os::concurrency
 			void unlock_shared() override { imports.ReleaseSRWLockShared(&m_Lock); }
 
 		private:
-			SRWLOCK m_Lock = SRWLOCK_INIT;
+			SRWLOCK m_Lock{};
 		};
 	}
 
-	shared_mutex::shared_mutex()
+	static std::unique_ptr<detail::i_shared_mutex> make_shared_mutex()
 	{
-		if (imports.TryAcquireSRWLockExclusive) // Windows 7 and above
-			m_Impl = std::make_unique<detail::shared_mutex_srw>();
-		else
-			m_Impl = std::make_unique<detail::shared_mutex_legacy>();
+		// Windows 7 and above
+		if (imports.TryAcquireSRWLockExclusive)
+			return std::make_unique<detail::shared_mutex_srw>();
+
+		return std::make_unique<detail::shared_mutex_legacy>();
 	}
+
+
+	shared_mutex::shared_mutex():
+		m_Impl(make_shared_mutex())
+	{
+	}
+
+	shared_mutex::~shared_mutex() = default;
+
+	void shared_mutex::lock()            { return m_Impl->lock(); }
+	bool shared_mutex::try_lock()        { return m_Impl->try_lock(); }
+	void shared_mutex::unlock()          { return m_Impl->unlock(); }
+	void shared_mutex::lock_shared()     { return m_Impl->lock_shared(); }
+	bool shared_mutex::try_lock_shared() { return m_Impl->try_lock_shared(); }
+	void shared_mutex::unlock_shared()   { return m_Impl->unlock_shared(); }
 
 
 	event::event(type const Type, state const InitialState, string_view const Name):
@@ -226,41 +280,6 @@ namespace os::concurrency
 			throw MAKE_FAR_FATAL_EXCEPTION(L"Event is not initialized properly"sv);
 		}
 	}
-
-
-	multi_waiter::multi_waiter()
-	{
-		m_Objects.reserve(10);
-	}
-
-	void multi_waiter::add(const handle& Object)
-	{
-		assert(m_Objects.size() < MAXIMUM_WAIT_OBJECTS);
-
-		m_Objects.emplace_back(Object.native_handle());
-	}
-
-	void multi_waiter::add(HANDLE handle)
-	{
-		assert(m_Objects.size() < MAXIMUM_WAIT_OBJECTS);
-
-		m_Objects.emplace_back(handle);
-	}
-
-	DWORD multi_waiter::wait(mode Mode, std::chrono::milliseconds Timeout) const
-	{
-		return WaitForMultipleObjects(static_cast<DWORD>(m_Objects.size()), m_Objects.data(), Mode == mode::all, Timeout.count());
-	}
-
-	DWORD multi_waiter::wait(mode Mode) const
-	{
-		return WaitForMultipleObjects(static_cast<DWORD>(m_Objects.size()), m_Objects.data(), Mode == mode::all, INFINITE);
-	}
-
-	void multi_waiter::clear()
-	{
-		m_Objects.clear();
-	}
 }
 
 #ifdef ENABLE_TESTS
@@ -270,8 +289,8 @@ namespace os::concurrency
 TEST_CASE("platform.thread.forwarding")
 {
 	{
-		os::thread Thread(&os::thread::join, [Ptr = std::make_unique<int>(33)](auto&&){}, std::make_unique<int>(42));
+		os::thread Thread(os::thread::mode::join, [Ptr = std::make_unique<int>(33)](auto&&){}, std::make_unique<int>(42));
 	}
-	SUCCEED();
+	REQUIRE(true);
 }
 #endif

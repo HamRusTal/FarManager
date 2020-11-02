@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "global.hpp"
 
@@ -50,46 +53,15 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //----------------------------------------------------------------------------
 
 global::global():
-	OnlyEditorViewerUsed(),
+	ErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX),
 	m_MainThreadId(GetCurrentThreadId()),
 	m_MainThreadHandle(os::OpenCurrentThread()),
 	m_FarStartTime(std::chrono::steady_clock::now()),
-	m_SearchHex(),
-	m_ConfigProvider(),
 	Opt(std::make_unique<Options>()),
 	ScrBuf(std::make_unique<ScreenBuf>()),
-	WindowManager(std::make_unique<Manager>()),
-	CtrlObject(nullptr)
+	WindowManager(std::make_unique<Manager>())
 {
 	Global = this;
-
-	// BUGBUG
-
-	// идет процесс назначения клавиши в макросе?
-	IsProcessAssignMacroKey = 0;
-	PluginPanelsCount = 0;
-	GlobalSearchCase=false;
-	GlobalSearchWholeWords=false; // значение "Whole words" для поиска
-	GlobalSearchReverse=false;
-	ScreenSaverActive = false;
-	CloseFAR = false;
-	CloseFARMenu = false;
-	AllowCancelExit = true;
-	DisablePluginsOutput = false;
-	ProcessException = false;
-	HelpFileMask = L"*.hlf"sv;
-#if defined(SYSLOG)
-	StartSysLog = false;
-#endif
-#ifdef DIRECT_RT
-	DirectRT = false;
-#endif
-	GlobalSaveScrPtr=nullptr;
-	CriticalInternalError = false;
-	Macro_DskShowPosType=0; // для какой панели вызывали меню выбора дисков (0 - ничерта не вызывали, 1 - левая (AltF1), 2 - правая (AltF2))
-	ErrorMode = SEM_FAILCRITICALERRORS|SEM_NOOPENFILEERRORBOX;
-
-	// BUGBUG end
 }
 
 global::~global()
@@ -106,7 +78,7 @@ std::chrono::steady_clock::duration global::FarUpTime() const
 	return std::chrono::steady_clock::now() - m_FarStartTime;
 }
 
-void global::StoreSearchString(const string& Str, bool Hex)
+void global::StoreSearchString(string_view const Str, bool Hex)
 {
 	m_SearchHex = Hex;
 	m_SearchString = Str;
@@ -114,7 +86,7 @@ void global::StoreSearchString(const string& Str, bool Hex)
 
 bool global::IsPanelsActive() const
 {
-	return Global->WindowManager && Global->WindowManager->IsPanelsActive(true, true);
+	return WindowManager && WindowManager->IsPanelsActive(true, true);
 }
 
 global::far_clock::far_clock()

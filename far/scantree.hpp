@@ -45,7 +45,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/noncopyable.hpp"
-#include "common/utility.hpp"
 
 // External:
 
@@ -64,7 +63,7 @@ public:
 	bool IsDirSearchDone() const;
 	bool InsideReparsePoint() const;
 
-	struct scantree_item;
+	class scantree_item;
 
 private:
 	BitFlags Flags;

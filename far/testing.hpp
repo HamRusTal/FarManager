@@ -41,22 +41,22 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "disable_warnings_in_std_begin.hpp"
 
-#ifdef MEMCHECK
-#pragma push_macro("new")
-#undef new
-#endif
+WARNING_PUSH()
+
+WARNING_DISABLE_MSC(5204) // 'class': class has virtual functions, but its trivial destructor is not virtual; instances of objects derived from this class may not be destructed correctly
+WARNING_DISABLE_CLANG("-Weverything")
+
+#define CATCH_CONFIG_ENABLE_ALL_STRINGMAKERS
 
 #include "thirdparty/catch2/catch.hpp"
 
-#ifdef MEMCHECK
-#pragma pop_macro("new")
-#endif
+WARNING_POP()
 
 #include "disable_warnings_in_std_end.hpp"
 
 #endif
 
-int testing_main(bool IsBuildStep, int Argc, wchar_t const* const Argv[]);
+std::optional<int> testing_main(int Argc, wchar_t const* const Argv[]);
 
 #endif
 

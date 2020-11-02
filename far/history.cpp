@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "history.hpp"
 
@@ -46,8 +49,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ctrlobj.hpp"
 #include "configdb.hpp"
 #include "datetime.hpp"
-#include "FarGuid.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "scrbuf.hpp"
 #include "plugins.hpp"
 #include "string_utils.hpp"
@@ -60,15 +63,15 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "platform.fs.hpp"
 
 // Common:
-#include "common/function_traits.hpp"
+#include "common/uuid.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-History::History(history_type TypeHistory, string HistoryName, const BoolOption& EnableSave):
+History::History(history_type TypeHistory, string_view const HistoryName, const BoolOption& EnableSave):
 	m_TypeHistory(TypeHistory),
-	m_HistoryName(std::move(HistoryName)),
+	m_HistoryName(HistoryName),
 	m_EnableSave(EnableSave),
 	m_EnableAdd(true),
 	m_KeepSelectedPos(false),
@@ -92,23 +95,19 @@ void History::CompactHistory()
 	}
 }
 
-/*
-   SaveForbid - принудительно запретить запись добавляемой строки.
-                Используется на панели плагина
-*/
-void History::AddToHistory(const string& Str, history_record_type const Type, const GUID* const Guid, string_view const File, string_view const Data, bool const SaveForbid)
+void History::AddToHistory(string_view const Str, history_record_type const Type, const UUID* const Uuid, string_view const File, string_view const Data)
 {
-	if (!m_EnableAdd || SaveForbid)
+	if (!m_EnableAdd)
 		return;
 
-	if (Global->CtrlObject->Macro.IsExecuting() && Global->CtrlObject->Macro.IsHistoryDisabled((int)m_TypeHistory))
+	if (Global->CtrlObject->Macro.IsExecuting() && Global->CtrlObject->Macro.IsHistoryDisabled(static_cast<int>(m_TypeHistory)))
 		return;
 
-	if (m_TypeHistory!=HISTORYTYPE_DIALOG && (m_TypeHistory!=HISTORYTYPE_FOLDER || !Guid || *Guid == FarGuid) && Str.empty())
+	if (m_TypeHistory!=HISTORYTYPE_DIALOG && (m_TypeHistory!=HISTORYTYPE_FOLDER || !Uuid || *Uuid == FarUuid) && Str.empty())
 		return;
 
 	bool Lock = false;
-	const auto strGuid = Guid? GuidToStr(*Guid) : L""s;
+	const auto strUuid = Uuid? uuid::str(*Uuid) : L""s;
 
 	unsigned long long DeleteId = 0;
 
@@ -123,7 +122,7 @@ void History::AddToHistory(const string& Str, history_record_type const Type, co
 			if (EqualType(Type, i.Type))
 			{
 				if (are_equal(Str, i.Name) &&
-					are_equal(strGuid, i.Guid) &&
+					are_equal(strUuid, i.Uuid) &&
 					are_equal(File, i.File) &&
 					(ignore_data || are_equal(Data, i.Data)))
 				{
@@ -135,21 +134,21 @@ void History::AddToHistory(const string& Str, history_record_type const Type, co
 		}
 	}
 
-	HistoryCfgRef()->DeleteAndAddAsync(DeleteId, m_TypeHistory, m_HistoryName, Str, Type, Lock, strGuid, File, Data);  //Async - should never be used in a transaction
+	HistoryCfgRef()->DeleteAndAddAsync(DeleteId, m_TypeHistory, m_HistoryName, Str, Type, Lock, strUuid, File, Data);  //Async - should never be used in a transaction
 
 	ResetPosition();
 }
 
-bool History::ReadLastItem(const string& HistoryName, string &strStr) const
+bool History::ReadLastItem(string_view const HistoryName, string &strStr) const
 {
 	strStr.clear();
 	return HistoryCfgRef()->GetNewest(HISTORYTYPE_DIALOG, HistoryName, strStr);
 }
 
-history_return_type History::Select(const string& Title, string_view const HelpTopic, string &strStr, history_record_type &Type, GUID* Guid, string *File, string *Data)
+history_return_type History::Select(string_view const Title, string_view const HelpTopic, string &strStr, history_record_type &Type, UUID* Uuid, string *File, string *Data)
 {
-	int Height=ScrY-8;
-	const auto HistoryMenu = VMenu2::create(Title, {}, Height);
+	const auto Height = ScrY - 8;
+	const auto HistoryMenu = VMenu2::create(string(Title), {}, Height);
 	HistoryMenu->SetMenuFlags(VMENU_WRAPMODE);
 	HistoryMenu->SetHelp(HelpTopic);
 
@@ -158,7 +157,7 @@ history_return_type History::Select(const string& Title, string_view const HelpT
 	if (m_TypeHistory == HISTORYTYPE_CMD || m_TypeHistory == HISTORYTYPE_FOLDER || m_TypeHistory == HISTORYTYPE_VIEW)
 		HistoryMenu->SetId(m_TypeHistory == HISTORYTYPE_CMD?HistoryCmdId:(m_TypeHistory == HISTORYTYPE_FOLDER?HistoryFolderId:HistoryEditViewId));
 
-	const auto ret = ProcessMenu(strStr, Guid, File, Data, Title, *HistoryMenu, Height, Type, nullptr);
+	const auto ret = ProcessMenu(strStr, Uuid, File, Data, Title, *HistoryMenu, Height, Type, nullptr);
 	Global->ScrBuf->Flush();
 	return ret;
 }
@@ -169,12 +168,12 @@ history_return_type History::Select(VMenu2& HistoryMenu, int Height, Dialog cons
 	return ProcessMenu(strStr, {}, {}, {}, {}, HistoryMenu, Height, Type, Dlg);
 }
 
-history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, string* const pstrFile, string* const pstrData, string_view const Title, VMenu2& HistoryMenu, int const Height, history_record_type& Type, const Dialog* const Dlg)
+history_return_type History::ProcessMenu(string& strStr, UUID* const Uuid, string* const File, string* const Data, string_view const Title, VMenu2& HistoryMenu, int const Height, history_record_type& Type, const Dialog* const Dlg)
 {
 	struct
 	{
 		unsigned long long id = 0;
-		string name, guid, file, data;
+		string name, uuid, file, data;
 		history_record_type type = HR_DEFAULT;
 	}
 	SelectedRecord;
@@ -222,11 +221,10 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 
 				else if (m_TypeHistory == HISTORYTYPE_FOLDER)
 				{
-					GUID HGuid;
-					if(StrToGuid(i.Guid, HGuid) && HGuid != FarGuid)
+					if(const auto UuidOpt = uuid::try_parse(i.Uuid); UuidOpt && *UuidOpt != FarUuid)
 					{
-						const auto pPlugin = Global->CtrlObject->Plugins->FindPlugin(HGuid);
-						strRecord = (pPlugin ? pPlugin->Title() : L'{' + i.Guid + L'}') + L':';
+						const auto pPlugin = Global->CtrlObject->Plugins->FindPlugin(*UuidOpt);
+						strRecord = (pPlugin ? pPlugin->Title() : L'{' + i.Uuid + L'}') + L':';
 						if(!i.File.empty())
 							strRecord += i.File + L':';
 					}
@@ -248,7 +246,7 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 				strRecord += i.Name;
 
 				if (m_TypeHistory != HISTORYTYPE_DIALOG)
-					replace(strRecord, L"&"sv, L"&&"sv);
+					inplace::escape_ampersands(strRecord);
 
 				MenuItemEx MenuItem(strRecord);
 				i.Lock? MenuItem.SetCheck() : MenuItem.ClearCheck();
@@ -322,13 +320,10 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 
 							// убить запись из истории
 							bool kill=false;
-							GUID HGuid;
-							if(StrToGuid(i.Guid,HGuid) && HGuid != FarGuid)
+							if(const auto UuidOpt = uuid::try_parse(i.Uuid); UuidOpt && *UuidOpt != FarUuid)
 							{
-								if (!Global->CtrlObject->Plugins->FindPlugin(HGuid))
-									kill=true;
-								else if (!i.File.empty() && !os::fs::exists(i.File))
-									kill=true;
+								if (!Global->CtrlObject->Plugins->FindPlugin(*UuidOpt) || (!i.File.empty() && !os::fs::exists(i.File)))
+									kill = true;
 							}
 							else if (!os::fs::exists(i.Name))
 								kill=true;
@@ -375,11 +370,14 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 
 					HistoryMenu.Close(Pos.SelectPos);
 					Done=true;
-					RetCode = (Key==KEY_CTRLALTENTER||Key==KEY_RCTRLRALTENTER||Key==KEY_CTRLRALTENTER||Key==KEY_RCTRLALTENTER||
-							Key==KEY_CTRLALTNUMENTER||Key==KEY_RCTRLRALTNUMENTER||Key==KEY_CTRLRALTNUMENTER||Key==KEY_RCTRLALTNUMENTER)? HRT_CTRLALTENTER
-							:((Key==KEY_CTRLSHIFTENTER||Key==KEY_RCTRLSHIFTENTER||Key==KEY_CTRLSHIFTNUMENTER||Key==KEY_RCTRLSHIFTNUMENTER)? HRT_CTRLSHIFTENTER
-							:((Key==KEY_SHIFTENTER||Key==KEY_SHIFTNUMENTER)? HRT_SHIFTETNER
-							:HRT_CTRLENTER));
+					RetCode =
+						flags::check_any(Key, KEY_CTRL | KEY_RCTRL) && flags::check_any(Key, KEY_ALT | KEY_RALT)?
+							HRT_CTRLALTENTER :
+							flags::check_any(Key, KEY_CTRL | KEY_RCTRL) && flags::check_any(Key, KEY_SHIFT)?
+								HRT_CTRLSHIFTENTER :
+								flags::check_any(Key, KEY_SHIFT)?
+									HRT_SHIFTETNER :
+									HRT_CTRLENTER;
 					break;
 				}
 				case KEY_F3:
@@ -396,13 +394,13 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 					case HISTORYTYPE_CMD:
 						if (Key == KEY_F3 && CurrentRecord)
 						{
-							string Data;
+							string HistoryData;
 
-							if (HistoryCfgRef()->Get(CurrentRecord, {}, {}, {}, {}, &Data))
+							if (HistoryCfgRef()->Get(CurrentRecord, {}, {}, {}, {}, &HistoryData))
 							{
 								DialogBuilder Builder(lng::MHistoryInfoTitle);
 								Builder.AddText(lng::MHistoryInfoFolder);
-								Builder.AddConstEditField(Data, std::max(20, std::min(static_cast<int>(Data.size()), ScrX - 5 * 2)));
+								Builder.AddConstEditField(HistoryData, std::max(20, std::min(static_cast<int>(HistoryData.size()), ScrX - 5 * 2)));
 								Builder.AddOK();
 								Builder.ShowDialog();
 							}
@@ -485,6 +483,7 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 			return KeyProcessed;
 		});
 
+		HistoryMenu.ClearDone();
 		if (IsUpdate)
 			continue;
 
@@ -497,11 +496,11 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 			if (!SelectedRecord.id)
 				return HRT_CANCEL;
 
-			if (!HistoryCfgRef()->Get(SelectedRecord.id, &SelectedRecord.name, &SelectedRecord.type, &SelectedRecord.guid, &SelectedRecord.file, &SelectedRecord.data))
+			if (!HistoryCfgRef()->Get(SelectedRecord.id, &SelectedRecord.name, &SelectedRecord.type, &SelectedRecord.uuid, &SelectedRecord.file, &SelectedRecord.data))
 				return HRT_CANCEL;
 
 			if (SelectedRecord.type != HR_EXTERNAL && SelectedRecord.type != HR_EXTERNAL_WAIT
-				&& RetCode != HRT_CTRLENTER && ((m_TypeHistory == HISTORYTYPE_FOLDER && SelectedRecord.guid.empty()) || m_TypeHistory == HISTORYTYPE_VIEW) && !os::fs::exists(SelectedRecord.name))
+				&& RetCode != HRT_CTRLENTER && ((m_TypeHistory == HISTORYTYPE_FOLDER && SelectedRecord.uuid.empty()) || m_TypeHistory == HISTORYTYPE_VIEW) && !os::fs::exists(SelectedRecord.name))
 			{
 				SetLastError(ERROR_FILE_NOT_FOUND);
 				const auto ErrorState = error_state::fetch();
@@ -544,17 +543,19 @@ history_return_type History::ProcessMenu(string& strStr, GUID* const Guid, strin
 
 	strStr = SelectedRecord.name;
 
-	if(Guid)
+	if(Uuid)
 	{
-		if(!StrToGuid(SelectedRecord.guid, *Guid))
-			*Guid = FarGuid;
+		if (const auto UuidOpt = uuid::try_parse(SelectedRecord.uuid))
+			*Uuid = *UuidOpt;
+		else
+			*Uuid = FarUuid;
 	}
 
-	if(pstrFile)
-		*pstrFile = SelectedRecord.file;
+	if(File)
+		*File = SelectedRecord.file;
 
-	if(pstrData)
-		*pstrData = SelectedRecord.data;
+	if(Data)
+		*Data = SelectedRecord.data;
 
 	switch(RetCode)
 	{
@@ -603,7 +604,7 @@ string History::GetNext()
 
 bool History::GetSimilar(string &strStr, int LastCmdPartLength, bool bAppend)
 {
-	int Length=(int)strStr.size();
+	auto Length=static_cast<int>(strStr.size());
 
 	if (LastCmdPartLength!=-1 && LastCmdPartLength<Length)
 		Length=LastCmdPartLength;
@@ -629,7 +630,7 @@ bool History::GetSimilar(string &strStr, int LastCmdPartLength, bool bAppend)
 		if (starts_with_icase(strName, string_view(strStr).substr(0, Length)) && strStr != strName)
 		{
 			if (bAppend)
-				strStr.append(strName, Length, string::npos);
+				strStr.append(strName, Length, string::npos); // gcc 7.3-8.1 bug: npos required. TODO: Remove after we move to 8.2 or later
 			else
 				strStr = strName;
 
@@ -643,18 +644,15 @@ bool History::GetSimilar(string &strStr, int LastCmdPartLength, bool bAppend)
 	return false;
 }
 
-std::vector<std::tuple<string, unsigned long long, bool>> History::GetAllSimilar(const string& Str) const
+void History::GetAllSimilar(string_view const Str, function_ref<void(string_view Name, unsigned long long Id, bool IsLocked)> const Callback) const
 {
-	FN_RETURN_TYPE(History::GetAllSimilar) Result;
-
 	for (const auto& i: HistoryCfgRef()->Enumerator(m_TypeHistory, m_HistoryName, true))
 	{
 		if (starts_with_icase(i.Name, Str))
 		{
-			Result.emplace_back(i.Name, i.Id, i.Lock);
+			Callback(i.Name, i.Id, i.Lock);
 		}
 	}
-	return Result;
 }
 
 bool History::DeleteIfUnlocked(unsigned long long id)

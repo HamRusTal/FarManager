@@ -34,21 +34,23 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "../algorithm.hpp"
+#include "../preprocessor.hpp"
+#include "../rel_ops.hpp"
 #include "point.hpp"
 
 //----------------------------------------------------------------------------
 
 template<typename T>
-struct rectangle_t
+struct rectangle_t: public rel_ops<rectangle_t<T>>
 {
 	T left;
 	T top;
 	T right;
 	T bottom;
 
-	rectangle_t() = default;
+	rectangle_t() noexcept = default;
 
-	rectangle_t(T const Left, T const Top, T const Right, T const Bottom):
+	rectangle_t(T const Left, T const Top, T const Right, T const Bottom) noexcept:
 		left(Left),
 		top(Top),
 		right(Right),
@@ -59,21 +61,36 @@ struct rectangle_t
 	}
 
 	template<typename Y>
-	rectangle_t(rectangle_t<Y> const Rectangle):
+	rectangle_t(rectangle_t<Y> const Rectangle) noexcept:
 		rectangle_t(Rectangle.left, Rectangle.top, Rectangle.right, Rectangle.bottom)
 	{
 	}
 
-	[[nodiscard]]
-	auto width() const { assert(left <= right); return right - left + 1; }
-
-	[[nodiscard]]
-	auto height() const { assert(top <= bottom); return bottom - top + 1; }
-
-	[[nodiscard]]
-	bool contains(point Point) const
+	template<typename Y, REQUIRES(sizeof(Y::Left) && sizeof(Y::Top) && sizeof(Y::Right) && sizeof(Y::Bottom))>
+	rectangle_t(Y const& Rectangle) noexcept:
+		rectangle_t(Rectangle.Left, Rectangle.Top, Rectangle.Right, Rectangle.Bottom)
 	{
-		return in_range(left, Point.x, right) && in_range(top, Point.y, bottom);
+	}
+
+	bool operator==(rectangle_t const& rhs) const
+	{
+		return
+			left == rhs.left &&
+			top == rhs.top &&
+			right == rhs.right &&
+			bottom == rhs.bottom;
+	}
+
+	[[nodiscard]]
+	auto width() const noexcept { assert(left <= right); return right - left + 1; }
+
+	[[nodiscard]]
+	auto height() const noexcept { assert(top <= bottom); return bottom - top + 1; }
+
+	[[nodiscard]]
+	bool contains(point const& Point) const noexcept
+	{
+		return in_closed_range(left, Point.x, right) && in_closed_range(top, Point.y, bottom);
 	}
 };
 

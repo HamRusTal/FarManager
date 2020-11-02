@@ -58,6 +58,8 @@ enum FINDAREA
 	FINDAREA_FROM_CURRENT,
 	FINDAREA_CURRENT_ONLY,
 	FINDAREA_SELECTED,
+
+	FINDAREA_COUNT
 };
 
 class Dialog;
@@ -88,7 +90,7 @@ public:
 	const std::unique_ptr<FileFilter>& GetFilter() const { return Filter; }
 	static bool IsWordDiv(wchar_t symbol);
 	// BUGBUG
-	void AddMenuRecord(Dialog* Dlg, const string& FullName, const os::fs::find_data& FindData, void* Data, FARPANELITEMFREECALLBACK FreeData, ArcListItem* Arc);
+	void AddMenuRecord(Dialog* Dlg, string_view FullName, const os::fs::find_data& FindData, void* Data, FARPANELITEMFREECALLBACK FreeData, ArcListItem* Arc);
 
 	enum type2
 	{
@@ -110,9 +112,9 @@ public:
 
 		AddMenuData() = default;
 		explicit AddMenuData(type2 Type): m_Type(Type) {}
-		AddMenuData(string FullName, os::fs::find_data FindData, void* Data, FARPANELITEMFREECALLBACK FreeData, ArcListItem* Arc):
-			m_FullName(std::move(FullName)),
-			m_FindData(std::move(FindData)),
+		AddMenuData(string_view FullName, const os::fs::find_data& FindData, void* Data, FARPANELITEMFREECALLBACK FreeData, ArcListItem* Arc):
+			m_FullName(FullName),
+			m_FindData(FindData),
 			m_Data(Data),
 			m_FreeData(FreeData),
 			m_Arc(Arc)
@@ -126,14 +128,15 @@ public:
 	// BUGBUG
 	void Lock() { PluginCS.lock(); }
 	void Unlock() { PluginCS.unlock(); }
+	[[nodiscard]]
 	auto ScopedLock() { return make_raii_wrapper(this, &FindFiles::Lock, &FindFiles::Unlock); }
 
 private:
 	string &PrepareDriveNameStr(string &strSearchFromRoot) const;
-	void AdvancedDialog();
+	void AdvancedDialog() const;
 	intptr_t MainDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void* Param2);
 	intptr_t FindDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void* Param2);
-	void OpenFile(const string& strSearchFileName, int key, const FindListItem* FindItem, Dialog* Dlg) const;
+	void OpenFile(const string& strSearchFileName, int OpenKey, const FindListItem* FindItem, Dialog* Dlg) const;
 	bool FindFilesProcess();
 	void ProcessMessage(const AddMenuData& Data);
 	void SetPluginDirectory(string_view DirName, const plugin_panel* hPlugin, bool UpdatePanel, const UserDataItem *UserData);

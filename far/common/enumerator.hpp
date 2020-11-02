@@ -37,7 +37,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //----------------------------------------------------------------------------
 
-template<typename Derived, typename T>
+template<typename Derived, typename T, bool Dereference = false>
 class [[nodiscard]] enumerator
 {
 public:
@@ -51,11 +51,11 @@ public:
 	class iterator_t: public rel_ops<iterator_t<item_type, owner>>
 	{
 	public:
-		using iterator_category = std::forward_iterator_tag;
-		using value_type = item_type;
+		using iterator_category = std::input_iterator_tag;
+		using value_type = std::conditional_t<Dereference, std::remove_pointer_t<item_type>, item_type>;
 		using difference_type = std::ptrdiff_t;
-		using pointer = T*;
-		using reference = T&;
+		using pointer = value_type*;
+		using reference = value_type&;
 
 		using owner_type = owner;
 
@@ -67,19 +67,36 @@ public:
 		};
 
 		iterator_t() = default;
-		iterator_t(owner_type Owner, position Position): m_Owner(Owner), m_Position(Position) {}
+
+		iterator_t(owner_type Owner, position Position):
+			m_Owner(Owner),
+			m_Position(Position)
+		{
+		}
 
 		[[nodiscard]]
-		auto operator->() { return &m_Value; }
+		auto operator->() noexcept
+		{
+			return &remove_pointer(value());
+		}
 
 		[[nodiscard]]
-		auto operator->() const { return &m_Value; }
+		auto operator->() const noexcept
+		{
+			return &remove_pointer(value());
+		}
 
 		[[nodiscard]]
-		auto& operator*() { return m_Value; }
+		auto& operator*() noexcept
+		{
+			return remove_pointer(value());
+		}
 
 		[[nodiscard]]
-		auto& operator*() const { return m_Value; }
+		auto& operator*() const noexcept
+		{
+			return remove_pointer(value());
+		}
 
 		auto& operator++()
 		{
@@ -96,24 +113,43 @@ public:
 		}
 
 		[[nodiscard]]
-		bool operator==(const iterator_t& rhs) const
+		bool operator==(const iterator_t& rhs) const noexcept
 		{
 			assert(!m_Owner || !rhs.m_Owner || m_Owner == rhs.m_Owner);
 			return m_Owner == rhs.m_Owner && m_Position == rhs.m_Position;
 		}
 
 		[[nodiscard]]
-		explicit operator bool() const
+		explicit operator bool() const noexcept
 		{
 			return m_Owner != nullptr;
 		}
 
-		static const size_t invalid_index{ size_t(-1) };
+		static inline constexpr size_t invalid_index{ size_t(-1) };
 
 	private:
-		owner_type m_Owner {};
+		template<typename V>
+		static decltype(auto) remove_pointer(V& Value)
+		{
+			if constexpr (Dereference && std::is_pointer_v<V>)
+				return *Value;
+			else
+				return Value;
+		}
+
+		item_type& value()
+		{
+			return m_Value;
+		}
+
+		auto& value() const
+		{
+			return m_Value;
+		}
+
+		owner_type m_Owner{};
 		position m_Position{ position::end };
-		std::remove_const_t<value_type> m_Value {};
+		std::remove_const_t<item_type> m_Value{};
 	};
 
 	using iterator = iterator_t<T, Derived*>;
@@ -137,19 +173,25 @@ public:
 	[[nodiscard]]
 	auto cend() const { return end(); }
 
+	[[nodiscard]]
+	auto empty() const { return cbegin() == cend(); }
+
 protected:
 	enumerator() { static_assert(std::is_base_of_v<enumerator, Derived>); }
 
 private:
 	template<typename iterator_type, typename owner_type>
 	[[nodiscard]]
-	static auto make_iterator(owner_type Owner, typename iterator_type::position Position = iterator_type::position::end) { return iterator_type{ static_cast<typename iterator_type::owner_type>(Owner), Position }; }
+	static auto make_iterator(owner_type Owner, typename iterator_type::position Position = iterator_type::position::end)
+	{
+		return iterator_type{ static_cast<typename iterator_type::owner_type>(Owner), Position };
+	}
 };
 
 #define IMPLEMENTS_ENUMERATOR(type) friend typename type::enumerator_type
 
 template<typename value_type, typename callable, typename finaliser>
-class inline_enumerator: public enumerator<inline_enumerator<value_type, callable, finaliser>, value_type>
+class [[nodiscard]] inline_enumerator: public enumerator<inline_enumerator<value_type, callable, finaliser>, value_type>
 {
 	IMPLEMENTS_ENUMERATOR(inline_enumerator);
 

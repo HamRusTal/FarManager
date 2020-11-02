@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "dizlist.hpp"
 
@@ -62,8 +65,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //----------------------------------------------------------------------------
 
 DizList::DizList():
-	m_CodePage(CP_DEFAULT),
-	m_Modified()
+	m_CodePage(CP_DEFAULT)
 {
 }
 
@@ -85,9 +87,9 @@ static void PR_ReadingMsg()
 			msg(lng::MReadingDiz)
 		},
 		{});
-};
+}
 
-void DizList::Read(const string& Path, const string* DizName)
+void DizList::Read(string_view const Path, const string* DizName)
 {
 	Reset();
 
@@ -104,13 +106,18 @@ void DizList::Read(const string& Path, const string* DizName)
 		if (!DizFile)
 			return false;
 
-		const time_check TimeCheck(time_check::mode::delayed, GetRedrawTimeout());
+		const time_check TimeCheck;
 
 		const auto CodePage = GetFileCodepage(DizFile, Global->Opt->Diz.AnsiByDefault? encoding::codepage::ansi() : encoding::codepage::oem(), nullptr, false);
 
 		auto LastAdded = m_DizData.end();
 		string DizText;
-		for (const auto& i: enum_file_lines(DizFile, CodePage))
+
+		os::fs::filebuf StreamBuffer(DizFile, std::ios::in);
+		std::istream Stream(&StreamBuffer);
+		Stream.exceptions(Stream.badbit | Stream.failbit);
+
+		for (const auto& i: enum_lines(Stream, CodePage))
 		{
 			DizText = i.Str;
 
@@ -149,7 +156,7 @@ void DizList::Read(const string& Path, const string* DizName)
 				}
 
 				// Insert unconditionally
-				LastAdded = Insert({ NameBegin, NameEnd });
+				LastAdded = Insert({ &*NameBegin, static_cast<size_t>(NameEnd - NameBegin) });
 				LastAdded->second.emplace_back(DescBegin, DizText.cend());
 			}
 			else if (LastAdded != m_DizData.end())
@@ -226,40 +233,34 @@ string_view DizList::Get(const string& Name, const string& ShortName, const long
 	return string_view(Description).substr(Begin - Description.begin());
 }
 
-template<class T>
-static auto Find_t(T& Map, const string& Name, const string& ShortName, uintptr_t Codepage)
+DizList::desc_map::iterator DizList::Find(const string& Name, const string& ShortName)
 {
-	auto Iterator = Map.find(Name);
-	if (Iterator == Map.end())
-		Iterator = Map.find(ShortName);
+	auto Iterator = m_DizData.find(Name);
+	if (Iterator == m_DizData.end())
+		Iterator = m_DizData.find(ShortName);
 
 	//если файл описаний был в OEM/ANSI то имена файлов могут не совпадать с юникодными
-	if (Iterator == Map.end() && !IsUnicodeOrUtfCodePage(Codepage) && Codepage != CP_DEFAULT)
+	if (Iterator == m_DizData.end() && !IsUnicodeOrUtfCodePage(m_CodePage) && m_CodePage != CP_DEFAULT)
 	{
-		const auto strRecoded = encoding::get_chars(Codepage, encoding::get_bytes(Codepage, Name));
+		const auto strRecoded = encoding::get_chars(m_CodePage, encoding::get_bytes(m_CodePage, Name));
 		if (strRecoded == Name)
 		{
 			return Iterator;
 		}
-		return Map.find(strRecoded);
+		return m_DizData.find(strRecoded);
 	}
 
 	return Iterator;
 }
 
-DizList::desc_map::iterator DizList::Find(const string& Name, const string& ShortName)
-{
-	return Find_t(m_DizData, Name, ShortName, m_CodePage);
-}
-
 DizList::desc_map::const_iterator DizList::Find(const string& Name, const string& ShortName) const
 {
-	return Find_t(m_DizData, Name, ShortName, m_CodePage);
+	return const_cast<DizList&>(*this).Find(Name, ShortName);
 }
 
-DizList::desc_map::iterator DizList::Insert(const string& Name)
+DizList::desc_map::iterator DizList::Insert(string_view const Name)
 {
-	auto Iterator = m_DizData.emplace(Name, std::list<string>());
+	auto Iterator = m_DizData.emplace(Name, description_data{});
 	m_OrderForWrite.push_back(&*Iterator);
 	return Iterator;
 }
@@ -275,7 +276,7 @@ bool DizList::Erase(const string& Name,const string& ShortName)
 	m_OrderForWrite.erase(std::find(ALL_RANGE(m_OrderForWrite), &*Iterator));
 
 	// Sometimes client can keep the pointer after erasure and use it,
-	// e. g. if description has been deleted during file moving and filelist decided to redraw in the process.
+	// e. g. if a description has been deleted during file moving and filelist decided to redraw in the process.
 	// Zeroing the pointer via some callback could be quite complex, so we just keep the data alive for a while:
 	m_RemovedEntries.emplace_back(std::move(Iterator->second));
 	m_DizData.erase(Iterator);
@@ -283,7 +284,7 @@ bool DizList::Erase(const string& Name,const string& ShortName)
 	return true;
 }
 
-bool DizList::Flush(const string& Path,const string* DizName)
+bool DizList::Flush(string_view const Path, const string* DizName)
 {
 	if (!m_Modified)
 		return true;
@@ -324,7 +325,7 @@ bool DizList::Flush(const string& Path,const string* DizName)
 				{ lng::MYes, lng::MNo }) != Message::first_button)
 			return false;
 
-		os::fs::set_file_attributes(m_DizFileName, FileAttr & ~FILE_ATTRIBUTE_READONLY);
+		(void)os::fs::set_file_attributes(m_DizFileName, FileAttr & ~FILE_ATTRIBUTE_READONLY); //BUGBUG
 	}
 
 	try
@@ -332,7 +333,7 @@ bool DizList::Flush(const string& Path,const string* DizName)
 		if (m_OrderForWrite.empty())
 		{
 			if (!os::fs::delete_file(m_DizFileName))
-				throw MAKE_FAR_EXCEPTION(L"Can't delete file"sv);
+				throw MAKE_FAR_EXCEPTION(L"Can't delete the file"sv);
 
 			return true;
 		}
@@ -341,7 +342,7 @@ bool DizList::Flush(const string& Path,const string* DizName)
 		{
 			encoding::writer Writer(Stream, Global->Opt->Diz.SaveInUTF? CP_UTF8 : Global->Opt->Diz.AnsiByDefault? CP_ACP : CP_OEMCP);
 
-			const auto Eol = eol::str(eol::type::win);
+			const auto Eol = eol::win.str();
 
 			for (const auto& i_ptr : m_OrderForWrite)
 			{
@@ -357,7 +358,7 @@ bool DizList::Flush(const string& Path,const string* DizName)
 	}
 	catch (const far_exception& e)
 	{
-		Message(MSG_WARNING, e.error_state(),
+		Message(MSG_WARNING, e,
 			msg(lng::MError),
 			{
 				msg(lng::MCannotUpdateDiz)

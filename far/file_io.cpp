@@ -29,6 +29,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "file_io.hpp"
 
@@ -44,13 +47,14 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "platform.fs.hpp"
 
 // Common:
+#include "common/smart_ptr.hpp"
 #include "common/string_utils.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-void save_file_with_replace(string const& FileName, DWORD const FileAttributes, DWORD const ExtraAttributes, bool const CreateBackup, function_ref<void(std::ostream& Sream)> const Handler)
+void save_file_with_replace(string_view const FileName, os::fs::attributes const FileAttributes, os::fs::attributes const ExtraAttributes, bool const CreateBackup, function_ref<void(std::ostream& Sream)> const Handler)
 {
 	const auto IsFileExists = FileAttributes != INVALID_FILE_ATTRIBUTES;
 
@@ -74,7 +78,7 @@ void save_file_with_replace(string const& FileName, DWORD const FileAttributes, 
 		return true;
 	}();
 
-	const auto OutFileName = UseTemporaryFile? MakeTempInSameDir(FileName) : FileName;
+	const auto OutFileName = UseTemporaryFile? MakeTempInSameDir(FileName) : string(FileName);
 	const auto NewAttributes = (IsFileExists? FileAttributes : 0) | FILE_ATTRIBUTE_ARCHIVE | ExtraAttributes;
 
 	os::security::descriptor SecurityDescriptor;
@@ -85,7 +89,7 @@ void save_file_with_replace(string const& FileName, DWORD const FileAttributes, 
 		// ReplaceFileW handles DAC, but just in case if it can't for whatever reason:
 		SecurityDescriptor = os::fs::get_file_security(FileName, DACL_SECURITY_INFORMATION);
 		if (SecurityDescriptor)
-			SecurityAttributes.lpSecurityDescriptor = SecurityDescriptor.get();
+			SecurityAttributes.lpSecurityDescriptor = SecurityDescriptor.data();
 	}
 
 	{
@@ -107,8 +111,14 @@ void save_file_with_replace(string const& FileName, DWORD const FileAttributes, 
 		if (!OutFile && GetLastError() == ERROR_INVALID_PARAMETER)
 			OutFile = create_file(nullptr, CREATE_ALWAYS);
 
+		// TODO: lng?
 		if (!OutFile)
-			throw MAKE_FAR_EXCEPTION(L"Can't create a temporary file"sv);
+			throw MAKE_FAR_EXCEPTION(
+				UseTemporaryFile?
+					L"Can't create a temporary file"sv :
+					IsFileExists?
+						L"Can't open the file"sv :
+						L"Can't create the file"sv);
 
 		os::fs::filebuf StreamBuffer(OutFile, std::ios::out);
 		std::ostream Stream(&StreamBuffer);
@@ -127,5 +137,5 @@ void save_file_with_replace(string const& FileName, DWORD const FileAttributes, 
 	}
 
 	// No error checking - non-critical (TODO: log)
-	os::fs::set_file_attributes(FileName, NewAttributes);
+	(void)os::fs::set_file_attributes(FileName, NewAttributes); //BUGBUG
 }

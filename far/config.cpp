@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "config.hpp"
 
@@ -55,10 +58,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "FarDlgBuilder.hpp"
 #include "elevation.hpp"
 #include "configdb.hpp"
-#include "KnownGuids.hpp"
+#include "uuids.plugins.hpp"
 #include "vmenu.hpp"
 #include "vmenu2.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "hmenu.hpp"
 #include "usermenu.hpp"
 #include "filetype.hpp"
@@ -89,11 +92,12 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Common:
 #include "common/algorithm.hpp"
 #include "common/from_string.hpp"
+#include "common/uuid.hpp"
+#include "common/view/enumerate.hpp"
 #include "common/view/zip.hpp"
 
 // External:
 #include "format.hpp"
-#include "guid_parse.hpp"
 
 //----------------------------------------------------------------------------
 
@@ -141,6 +145,7 @@ static const auto
 	NKeyPanelLayout = L"Panel.Layout"sv,
 	NKeyPanelTree = L"Panel.Tree"sv,
 	NKeyPanelInfo = L"Panel.Info"sv,
+	NKeyPanelSortLayers = L"Panel.SortLayers"sv,
 	NKeyLayout = L"Layout"sv,
 	NKeyDescriptions = L"Descriptions"sv,
 	NKeyKeyMacros = L"Macros"sv,
@@ -155,12 +160,12 @@ static const auto
 static size_t DisplayModeToReal(size_t Mode)
 {
 	return Mode < predefined_panel_modes_count? (Mode == 9? 0 : Mode + 1) : Mode - 1;
-};
+}
 
 static size_t RealModeToDisplay(size_t Mode)
 {
 	return Mode < predefined_panel_modes_count? (Mode == 0? 9 : Mode - 1) : Mode + 1;
-};
+}
 
 void Options::SystemSettings()
 {
@@ -189,14 +194,14 @@ void Options::SystemSettings()
 	Builder.AddCheckbox(lng::MConfigElevationRead, StoredElevationMode, ELEVATION_READ_REQUEST)->Indent(4);
 	Builder.AddCheckbox(lng::MConfigElevationUsePrivileges, StoredElevationMode, ELEVATION_USE_PRIVILEGES)->Indent(4);
 
-	static const FarDialogBuilderListItem SortingMethods[] =
+	static const DialogBuilderListItem SortingMethods[] =
 	{
 		{ lng::MConfigSortingOrdinal, as_underlying_type(SortingOptions::collation::ordinal) },
 		{ lng::MConfigSortingInvariant, as_underlying_type(SortingOptions::collation::invariant) },
 		{ lng::MConfigSortingLinguistic, as_underlying_type(SortingOptions::collation::linguistic) },
 	};
 
-	const auto SortingMethodsComboBox = Builder.AddComboBox(Sort.Collation, nullptr, 20, SortingMethods, std::size(SortingMethods), DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+	const auto SortingMethodsComboBox = Builder.AddComboBox(Sort.Collation, 20, SortingMethods);
 	Builder.AddTextBefore(SortingMethodsComboBox, lng::MConfigSortingCollation);
 	Builder.AddCheckbox(lng::MConfigSortingDigitsAsNumbers, Sort.DigitsAsNumbers)->Indent(4);
 	Builder.AddCheckbox(lng::MConfigSortingCase, Sort.CaseSensitive)->Indent(4);
@@ -226,12 +231,12 @@ void Options::PanelSettings()
 	Builder.AddCheckbox(lng::MConfigSelectFolders, SelectFolders);
 	Builder.AddCheckbox(lng::MConfigRightClickSelect, RightClickSelect);
 	Builder.AddCheckbox(lng::MConfigSortFolderExt, SortFolderExt);
-	Builder.AddCheckbox(lng::MConfigReverseSort, ReverseSort);
+	Builder.AddCheckbox(lng::MConfigAllowReverseSort, AllowReverseSort);
 
-	DialogItemEx *AutoUpdateEnabled = Builder.AddCheckbox(lng::MConfigAutoUpdateLimit, &AutoUpdate);
-	DialogItemEx *AutoUpdateLimitItem = Builder.AddIntEditField(AutoUpdateLimit, 6);
+	const auto AutoUpdateEnabled = Builder.AddCheckbox(lng::MConfigAutoUpdateLimit, AutoUpdate);
+	const auto AutoUpdateLimitItem = Builder.AddIntEditField(AutoUpdateLimit, 6);
 	Builder.LinkFlags(AutoUpdateEnabled, AutoUpdateLimitItem, DIF_DISABLE, false);
-	DialogItemEx *AutoUpdateTextItem = Builder.AddTextBefore(AutoUpdateLimitItem, lng::MConfigAutoUpdateLimit2);
+	const auto AutoUpdateTextItem = Builder.AddTextBefore(AutoUpdateLimitItem, lng::MConfigAutoUpdateLimit2);
 	AutoUpdateLimitItem->Indent(4);
 	AutoUpdateTextItem->Indent(4);
 	Builder.AddCheckbox(lng::MConfigAutoUpdateRemoteDrive, AutoUpdateRemoteDrive);
@@ -325,10 +330,9 @@ void Options::InterfaceSettings()
 	Builder.AddCheckbox(lng::MConfigMouse, Mouse);
 	Builder.AddCheckbox(lng::MConfigKeyBar, ShowKeyBar);
 	Builder.AddCheckbox(lng::MConfigMenuBar, ShowMenuBar);
-	DialogItemEx *SaverCheckbox = Builder.AddCheckbox(lng::MConfigSaver, ScreenSaver);
-
-	DialogItemEx *SaverEdit = Builder.AddIntEditField(ScreenSaverTime, 2);
-	SaverEdit->Indent(4);
+	const auto SaverCheckbox = Builder.AddCheckbox(lng::MConfigSaver, ScreenSaver);
+	const auto SaverEdit = Builder.AddIntEditField(ScreenSaverTime, 3);
+	SaverEdit->Indent(5);
 	Builder.AddTextAfter(SaverEdit, lng::MConfigSaverMinutes);
 	Builder.LinkFlags(SaverCheckbox, SaverEdit, DIF_DISABLE);
 
@@ -338,8 +342,22 @@ void Options::InterfaceSettings()
 	Builder.AddCheckbox(lng::MConfigPgUpChangeDisk, PgUpChangeDisk);
 	Builder.AddCheckbox(lng::MConfigUseVirtualTerminalForRendering, VirtualTerminalRendering);
 	Builder.AddCheckbox(lng::MConfigClearType, ClearType);
-	DialogItemEx* SetIconCheck = Builder.AddCheckbox(lng::MConfigSetConsoleIcon, SetIcon);
-	DialogItemEx* SetAdminIconCheck = Builder.AddCheckbox(lng::MConfigSetAdminConsoleIcon, SetAdminIcon);
+	Builder.StartColumns();
+	const auto SetIconCheck = Builder.AddCheckbox(lng::MConfigSetConsoleIcon, SetIcon);
+	Builder.ColumnBreak();
+
+	std::vector<DialogBuilderListItem> IconIndices;
+	IconIndices.reserve(consoleicons::instance().size());
+
+	for (size_t i = 0, size = consoleicons::instance().size(); i != size; ++i)
+	{
+		IconIndices.emplace_back(str(i), static_cast<int>(i));
+	}
+
+	const auto IconIndexEdit = Builder.AddComboBox(IconIndex, 0, IconIndices);
+	Builder.EndColumns();
+	Builder.LinkFlags(SetIconCheck, IconIndexEdit, DIF_DISABLE);
+	const auto SetAdminIconCheck = Builder.AddCheckbox(lng::MConfigSetAdminConsoleIcon, SetAdminIcon);
 	SetAdminIconCheck->Indent(4);
 	Builder.LinkFlags(SetIconCheck, SetAdminIconCheck, DIF_DISABLE);
 	Builder.AddText(lng::MConfigTitleAddons);
@@ -352,6 +370,8 @@ void Options::InterfaceSettings()
 			CMOpt.CopyTimeRule = 3;
 
 		SetFarConsoleMode();
+		consoleicons::instance().set_icon();
+
 		const auto& Panels = Global->CtrlObject->Cp();
 		Panels->LeftPanel()->Update(UPDATE_KEEP_SELECTION);
 		Panels->RightPanel()->Update(UPDATE_KEEP_SELECTION);
@@ -364,8 +384,8 @@ void Options::InterfaceSettings()
 void Options::AutoCompleteSettings()
 {
 	DialogBuilder Builder(lng::MConfigAutoCompleteTitle, L"AutoCompleteSettings"sv);
-	DialogItemEx *ListCheck=Builder.AddCheckbox(lng::MConfigAutoCompleteShowList, AutoComplete.ShowList);
-	DialogItemEx *ModalModeCheck=Builder.AddCheckbox(lng::MConfigAutoCompleteModalList, AutoComplete.ModalList);
+	const auto ListCheck=Builder.AddCheckbox(lng::MConfigAutoCompleteShowList, AutoComplete.ShowList);
+	const auto ModalModeCheck=Builder.AddCheckbox(lng::MConfigAutoCompleteModalList, AutoComplete.ModalList);
 	ModalModeCheck->Indent(4);
 	Builder.AddCheckbox(lng::MConfigAutoCompleteAutoAppend, AutoComplete.AppendCompletion);
 	Builder.LinkFlags(ListCheck, ModalModeCheck, DIF_DISABLE);
@@ -375,37 +395,40 @@ void Options::AutoCompleteSettings()
 
 void Options::InfoPanelSettings()
 {
-	static const FarDialogBuilderListItem UNListItems[]=
+	static const DialogBuilderListItem UNListItems[]
 	{
-		{ lng::MConfigInfoPanelUNFullyQualifiedDN, NameFullyQualifiedDN },          // 1  - CN=John Doe, OU=Software, OU=Engineering, O=Widget, C=US
-		{ lng::MConfigInfoPanelUNSamCompatible, NameSamCompatible },                // 2  - Engineering\JohnDoe, If the user account is not in a domain, only NameSamCompatible is supported.
-		{ lng::MConfigInfoPanelUNDisplay, NameDisplay },                            // 3  - Probably "John Doe" but could be something else.  I.e. The display name is not necessarily the defining RDN.
-		{ lng::MConfigInfoPanelUNUniqueId, NameUniqueId },                          // 6  - String-ized GUID as returned by IIDFromString(). eg: {4fa050f0-f561-11cf-bdd9-00aa003a77b6}
-		{ lng::MConfigInfoPanelUNCanonical, NameCanonical },                        // 7  - engineering.widget.com/software/John Doe
-		{ lng::MConfigInfoPanelUNUserPrincipal, NameUserPrincipal },                // 8  - someone@example.com
-		{ lng::MConfigInfoPanelUNServicePrincipal, NameServicePrincipal },          // 10 - www/srv.engineering.com/engineering.com
-		{ lng::MConfigInfoPanelUNDnsDomain, NameDnsDomain },                        // 12 - DNS domain name + SAM username eg: engineering.widget.com\JohnDoe
+		{ lng::MConfigInfoPanelUNLogon,             NameUnknown },
+		{ lng::MConfigInfoPanelUNFullyQualifiedDN,  NameFullyQualifiedDN },
+		{ lng::MConfigInfoPanelUNSamCompatible,     NameSamCompatible },
+		{ lng::MConfigInfoPanelUNDisplay,           NameDisplay },
+		{ lng::MConfigInfoPanelUNUniqueId,          NameUniqueId },
+		{ lng::MConfigInfoPanelUNCanonical,         NameCanonical },
+		{ lng::MConfigInfoPanelUNUserPrincipal,     NameUserPrincipal },
+		{ lng::MConfigInfoPanelUNServicePrincipal,  NameServicePrincipal },
+		{ lng::MConfigInfoPanelUNDnsDomain,         NameDnsDomain },
+		{ lng::MConfigInfoPanelUNGivenName,         NameGivenName },
+		{ lng::MConfigInfoPanelUNSurname,           NameSurname },
 	};
 
-	static const FarDialogBuilderListItem CNListItems[] =
+	static const DialogBuilderListItem CNListItems[]
 	{
-		{ lng::MConfigInfoPanelCNNetBIOS, ComputerNameNetBIOS },                                     // The NetBIOS name of the local computer or the cluster associated with the local computer. This name is limited to MAX_COMPUTERNAME_LENGTH + 1 characters and may be a truncated version of the DNS host name. For example, if the DNS host name is "corporate-mail-server", the NetBIOS name would be "corporate-mail-".
-		{ lng::MConfigInfoPanelCNDnsHostname, ComputerNameDnsHostname },                             // The DNS name of the local computer or the cluster associated with the local computer.
-		{ lng::MConfigInfoPanelCNDnsDomain, ComputerNameDnsDomain },                                 // The name of the DNS domain assigned to the local computer or the cluster associated with the local computer.
-		{ lng::MConfigInfoPanelCNDnsFullyQualified, ComputerNameDnsFullyQualified },                 // The fully-qualified DNS name that uniquely identifies the local computer or the cluster associated with the local computer. This name is a combination of the DNS host name and the DNS domain name, using the form HostName.DomainName. For example, if the DNS host name is "corporate-mail-server" and the DNS domain name is "microsoft.com", the fully qualified DNS name is "corporate-mail-server.microsoft.com".
-		{ lng::MConfigInfoPanelCNPhysicalNetBIOS, ComputerNamePhysicalNetBIOS },                     // The NetBIOS name of the local computer. On a cluster, this is the NetBIOS name of the local node on the cluster.
-		{ lng::MConfigInfoPanelCNPhysicalDnsHostname, ComputerNamePhysicalDnsHostname },             // The DNS host name of the local computer. On a cluster, this is the DNS host name of the local node on the cluster.
-		{ lng::MConfigInfoPanelCNPhysicalDnsDomain, ComputerNamePhysicalDnsDomain },                 // The name of the DNS domain assigned to the local computer. On a cluster, this is the DNS domain of the local node on the cluster.
-		{ lng::MConfigInfoPanelCNPhysicalDnsFullyQualified, ComputerNamePhysicalDnsFullyQualified }, // The fully-qualified DNS name that uniquely identifies the computer. On a cluster, this is the fully qualified DNS name of the local node on the cluster. The fully qualified DNS name is a combination of the DNS host name and the DNS domain name, using the form HostName.DomainName.
+		{ lng::MConfigInfoPanelCNNetBIOS,                    ComputerNameNetBIOS },
+		{ lng::MConfigInfoPanelCNDnsHostname,                ComputerNameDnsHostname },
+		{ lng::MConfigInfoPanelCNDnsDomain,                  ComputerNameDnsDomain },
+		{ lng::MConfigInfoPanelCNDnsFullyQualified,          ComputerNameDnsFullyQualified },
+		{ lng::MConfigInfoPanelCNPhysicalNetBIOS,            ComputerNamePhysicalNetBIOS },
+		{ lng::MConfigInfoPanelCNPhysicalDnsHostname,        ComputerNamePhysicalDnsHostname },
+		{ lng::MConfigInfoPanelCNPhysicalDnsDomain,          ComputerNamePhysicalDnsDomain },
+		{ lng::MConfigInfoPanelCNPhysicalDnsFullyQualified,  ComputerNamePhysicalDnsFullyQualified },
 	};
 
 	DialogBuilder Builder(lng::MConfigInfoPanelTitle, L"InfoPanelSettings"sv);
 	Builder.AddCheckbox(lng::MConfigInfoPanelShowPowerStatus, InfoPanel.ShowPowerStatus);
 	Builder.AddCheckbox(lng::MConfigInfoPanelShowCDInfo, InfoPanel.ShowCDInfo);
 	Builder.AddText(lng::MConfigInfoPanelCNTitle);
-	Builder.AddComboBox(InfoPanel.ComputerNameFormat, nullptr, 50, CNListItems, std::size(CNListItems), DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+	Builder.AddComboBox(InfoPanel.ComputerNameFormat, 50, CNListItems);
 	Builder.AddText(lng::MConfigInfoPanelUNTitle);
-	Builder.AddComboBox(InfoPanel.UserNameFormat, nullptr, 50, UNListItems, std::size(UNListItems), DIF_LISTAUTOHIGHLIGHT|DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+	Builder.AddComboBox(InfoPanel.UserNameFormat, 50, UNListItems);
 	Builder.AddOKCancel();
 
 	if (Builder.ShowDialog())
@@ -433,9 +456,9 @@ static void ApplyDefaultMaskGroups()
 {
 	static const std::pair<string_view, string_view> Sets[] =
 	{
-		{ L"arc"sv,  L"*.rar,*.zip,*.[zj],*.[bg7x]z,*.[bg]zip,*.tar,*.t[agbx]z,*.ar[cj],*.r[0-9][0-9],*.a[0-9][0-9],*.bz2,*.cab,*.msi,*.jar,*.lha,*.lzh,*.ha,*.ac[bei],*.pa[ck],*.rk,*.cpio,*.rpm,*.zoo,*.hqx,*.sit,*.ice,*.uc2,*.ain,*.imp,*.777,*.ufa,*.boa,*.bs[2a],*.sea,*.hpk,*.ddi,*.x2,*.rkv,*.[lw]sz,*.h[ay]p,*.lim,*.sqz,*.chz"sv },
+		{ L"arc"sv,  L"*.zip,*.rar,*.[7bgxl]z,*.[bg]zip,*.tar,*.t[agbxl]z,*.z,*.ar[cj],*.r[0-9][0-9],*.a[0-9][0-9],*.bz2,*.cab,*.jar,*.lha,*.lzh,*.ha,*.ac[bei],*.pa[ck],*.rk,*.cpio,*.rpm,*.zoo,*.hqx,*.sit,*.ice,*.uc2,*.ain,*.imp,*.777,*.ufa,*.boa,*.bs[2a],*.sea,*.[ah]pk,*.ddi,*.x2,*.rkv,*.[lw]sz,*.h[ay]p,*.lim,*.sqz,*.chz,*.aa[br]"sv },
 		{ L"temp"sv, L"*.bak,*.tmp"sv },
-		{ L"exec"sv, L"*.exe,*.com,*.bat,*.cmd,%PATHEXT%"sv },
+		{ L"exec"sv, L"*.exe,*.cmd,*.bat,*.com,%PATHEXT%"sv },
 	};
 
 	for (const auto& [Name, Value]: Sets)
@@ -462,8 +485,9 @@ static void FillMasksMenu(VMenu2& MasksMenu, int SelPos = 0)
 
 void Options::MaskGroupsSettings()
 {
-	const auto MasksMenu = VMenu2::create(msg(lng::MMenuMaskGroups), {}, 0, VMENU_WRAPMODE | VMENU_SHOWAMPERSAND);
-	MasksMenu->SetBottomTitle(msg(lng::MMaskGroupBottom));
+	const auto MasksMenu = VMenu2::create(msg(lng::MMaskGroupTitle), {}, 0, VMENU_WRAPMODE | VMENU_SHOWAMPERSAND);
+	const auto BottomTitle = KeysToLocalizedText(KEY_INS, KEY_DEL, KEY_F4, KEY_F7, KEY_CTRLR);
+	MasksMenu->SetBottomTitle(BottomTitle);
 	MasksMenu->SetHelp(L"MaskGroupsSettings"sv);
 	FillMasksMenu(*MasksMenu);
 	MasksMenu->SetPosition({ -1, -1, -1, -1 });
@@ -475,19 +499,15 @@ void Options::MaskGroupsSettings()
 		MasksMenu->Run([&](const Manager::Key& RawKey)
 		{
 			const auto Key=RawKey();
-			if(Filter)
+			if(Filter && any_of(Key, KEY_ESC, KEY_F10, KEY_ENTER, KEY_NUMENTER))
 			{
-				if(Key == KEY_ESC || Key == KEY_F10 || Key == KEY_ENTER || Key == KEY_NUMENTER)
+				Filter = false;
+				for (size_t i = 0, size = MasksMenu->size(); i != size;  ++i)
 				{
-					Filter = false;
-					for (size_t i = 0, size = MasksMenu->size(); i != size;  ++i)
-					{
-						MasksMenu->UpdateItemFlags(static_cast<int>(i), MasksMenu->at(i).Flags & ~MIF_HIDDEN);
-					}
-					MasksMenu->SetPosition({ -1, -1, -1, -1 });
-					MasksMenu->SetTitle(msg(lng::MMenuMaskGroups));
-					MasksMenu->SetBottomTitle(msg(lng::MMaskGroupBottom));
+					MasksMenu->UpdateItemFlags(static_cast<int>(i), MasksMenu->at(i).Flags & ~MIF_HIDDEN);
 				}
+				MasksMenu->SetPosition({ -1, -1, -1, -1 });
+				MasksMenu->SetBottomTitle(BottomTitle);
 				return 1;
 			}
 			int ItemPos = MasksMenu->GetSelectPos();
@@ -499,7 +519,7 @@ void Options::MaskGroupsSettings()
 			case KEY_NUMDEL:
 			case KEY_DEL:
 				if(Item && Message(0,
-					msg(lng::MMenuMaskGroups),
+					msg(lng::MMaskGroupTitle),
 					{
 						msg(lng::MMaskGroupAskDelete),
 						*Item
@@ -528,7 +548,7 @@ void Options::MaskGroupsSettings()
 							Name = *Item;
 							Value = ConfigProvider().GeneralCfg()->GetValue<string>(L"Masks"sv, Name);
 						}
-						DialogBuilder Builder(lng::MMenuMaskGroups, L"MaskGroupsSettings"sv);
+						DialogBuilder Builder(lng::MMaskGroupTitle, L"MaskGroupsSettings"sv);
 						Builder.AddText(lng::MMaskGroupName);
 						Builder.AddEditField(Name, 60);
 						Builder.AddText(lng::MMaskGroupMasks);
@@ -551,7 +571,7 @@ void Options::MaskGroupsSettings()
 			case KEY_RCTRLR:
 				{
 					if (Message(MSG_WARNING,
-						msg(lng::MMenuMaskGroups),
+						msg(lng::MMaskGroupTitle),
 						{
 							msg(lng::MMaskGroupRestore),
 						},
@@ -575,8 +595,8 @@ void Options::MaskGroupsSettings()
 						for (size_t i = 0, size = MasksMenu->size(); i != size; ++i)
 						{
 							filemasks Masks;
-							Masks.Set(ConfigProvider().GeneralCfg()->GetValue<string>(L"Masks"sv, *MasksMenu->GetComplexUserDataPtr<string>(i)));
-							if(!Masks.Compare(Value))
+							Masks.assign(ConfigProvider().GeneralCfg()->GetValue<string>(L"Masks"sv, *MasksMenu->GetComplexUserDataPtr<string>(i)));
+							if(!Masks.check(Value))
 							{
 								MasksMenu->UpdateItemFlags(static_cast<int>(i), MasksMenu->at(i).Flags | MIF_HIDDEN);
 							}
@@ -633,7 +653,7 @@ void Options::DialogSettings()
 void Options::VMenuSettings()
 {
 
-	static const FarDialogBuilderListItem CAListItems[]=
+	static const DialogBuilderListItem CAListItems[]
 	{
 		{ lng::MConfigVMenuClickCancel, VMENUCLICK_CANCEL },  // Cancel menu
 		{ lng::MConfigVMenuClickApply,  VMENUCLICK_APPLY  },  // Execute selected item
@@ -652,7 +672,7 @@ void Options::VMenuSettings()
 	for (const auto& [LngId, OptPtr]: DialogItems)
 	{
 		Builder.AddText(LngId);
-		Builder.AddComboBox(std::invoke(OptPtr, VMenu), nullptr, 40, CAListItems, std::size(CAListItems), DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+		Builder.AddComboBox(std::invoke(OptPtr, VMenu), 40, CAListItems);
 	}
 
 	Builder.AddOKCancel();
@@ -666,15 +686,16 @@ void Options::CmdlineSettings()
 	Builder.AddCheckbox(lng::MConfigCmdlineEditBlock, CmdLine.EditBlock);
 	Builder.AddCheckbox(lng::MConfigCmdlineDelRemovesBlocks, CmdLine.DelRemovesBlocks);
 	Builder.AddCheckbox(lng::MConfigCmdlineAutoComplete, CmdLine.AutoComplete);
-	DialogItemEx *UsePromptFormat = Builder.AddCheckbox(lng::MConfigCmdlineUsePromptFormat, CmdLine.UsePromptFormat);
-	DialogItemEx *PromptFormat = Builder.AddEditField(CmdLine.strPromptFormat, 33);
+
+	const auto UsePromptFormat = Builder.AddCheckbox(lng::MConfigCmdlineUsePromptFormat, CmdLine.UsePromptFormat);
+	const auto PromptFormat = Builder.AddEditField(CmdLine.strPromptFormat, 33);
 	PromptFormat->Indent(4);
 	Builder.LinkFlags(UsePromptFormat, PromptFormat, DIF_DISABLE);
 
-	UsePromptFormat = Builder.AddCheckbox(lng::MConfigCmdlineUseHomeDir, Exec.UseHomeDir);
-	PromptFormat = Builder.AddEditField(Exec.strHomeDir, 33);
-	PromptFormat->Indent(4);
-	Builder.LinkFlags(UsePromptFormat, PromptFormat, DIF_DISABLE);
+	const auto UseHomeDir = Builder.AddCheckbox(lng::MConfigCmdlineUseHomeDir, Exec.UseHomeDir);
+	const auto HomeDir = Builder.AddEditField(Exec.strHomeDir, 33);
+	HomeDir->Indent(4);
+	Builder.LinkFlags(UseHomeDir, HomeDir, DIF_DISABLE);
 
 	Builder.AddOKCancel();
 
@@ -718,8 +739,8 @@ void Options::PluginsManagerSettings()
 	Builder.AddCheckbox(lng::MPluginsManagerScanSymlinks, LoadPlug.ScanSymlinks);
 	Builder.AddSeparator(lng::MPluginConfirmationTitle);
 	Builder.AddCheckbox(lng::MPluginsManagerOFP, PluginConfirm.OpenFilePlugin);
-	DialogItemEx *StandardAssoc = Builder.AddCheckbox(lng::MPluginsManagerStdAssoc, PluginConfirm.StandardAssociation);
-	DialogItemEx *EvenIfOnlyOne = Builder.AddCheckbox(lng::MPluginsManagerEvenOne, PluginConfirm.EvenIfOnlyOnePlugin);
+	const auto StandardAssoc = Builder.AddCheckbox(lng::MPluginsManagerStdAssoc, PluginConfirm.StandardAssociation);
+	const auto EvenIfOnlyOne = Builder.AddCheckbox(lng::MPluginsManagerEvenOne, PluginConfirm.EvenIfOnlyOnePlugin);
 	StandardAssoc->Indent(2);
 	EvenIfOnlyOne->Indent(4);
 
@@ -740,12 +761,12 @@ void Options::SetDizConfig()
 
 	Builder.AddCheckbox(lng::MCfgDizSetHidden, Diz.SetHidden);
 	Builder.AddCheckbox(lng::MCfgDizROUpdate, Diz.ROUpdate);
-	DialogItemEx *StartPos = Builder.AddIntEditField(Diz.StartPos, 2);
+	const auto StartPos = Builder.AddIntEditField(Diz.StartPos, 2);
 	Builder.AddTextAfter(StartPos, lng::MCfgDizStartPos);
 	Builder.AddSeparator();
 
 	static const lng DizOptions[] = { lng::MCfgDizNotUpdate, lng::MCfgDizUpdateIfDisplayed, lng::MCfgDizAlwaysUpdate };
-	Builder.AddRadioButtons(Diz.UpdateMode, 3, DizOptions);
+	Builder.AddRadioButtons(Diz.UpdateMode, DizOptions);
 	Builder.AddSeparator();
 
 	Builder.AddCheckbox(lng::MCfgDizAnsiByDefault, Diz.AnsiByDefault);
@@ -786,7 +807,7 @@ void Options::ViewerConfig(Options::ViewerOptions &ViOptRef, bool Local)
 		return Dlg->DefProc(Msg, Param1, Param2);
 	});
 
-	std::vector<FarDialogBuilderListItem2> Items; //Must live until Dialog end
+	std::vector<DialogBuilderListItem> Items; //Must live until Dialog end
 
 	if (!Local)
 	{
@@ -799,7 +820,7 @@ void Options::ViewerConfig(Options::ViewerOptions &ViOptRef, bool Local)
 	Builder.StartColumns();
 	++id; Builder.AddCheckbox(lng::MViewConfigPersistentSelection, ViOptRef.PersistentBlocks);
 	++id; Builder.AddCheckbox(lng::MViewConfigEditAutofocus, ViOptRef.SearchEditFocus);
-	++id; DialogItemEx *TabSize = Builder.AddIntEditField(ViOptRef.TabSize, 3);
+	++id; const auto TabSize = Builder.AddIntEditField(ViOptRef.TabSize, 3);
 	++id; Builder.AddTextAfter(TabSize, lng::MViewConfigTabSize);
 	Builder.ColumnBreak();
 	++id; Builder.AddCheckbox(lng::MViewConfigArrows, ViOptRef.ShowArrows);
@@ -814,7 +835,7 @@ void Options::ViewerConfig(Options::ViewerOptions &ViOptRef, bool Local)
 		save_pos = ++id; Builder.AddCheckbox(lng::MViewConfigSavePos, ViOpt.SavePos);
 		save_cp = ++id; Builder.AddCheckbox(lng::MViewConfigSaveCodepage, ViOpt.SaveCodepage);
 		Builder.AddCheckbox(lng::MViewConfigSaveShortPos, ViOpt.SaveShortPos);
-		DialogItemEx *MaxLineSize = Builder.AddIntEditField(ViOpt.MaxLineSize, 6);
+		const auto MaxLineSize = Builder.AddIntEditField(ViOpt.MaxLineSize, 6);
 		Builder.AddTextAfter(MaxLineSize, lng::MViewConfigMaxLineSize);
 		Builder.ColumnBreak();
 		Builder.AddCheckbox(lng::MViewConfigSaveViewMode, ViOpt.SaveViewMode);
@@ -824,7 +845,7 @@ void Options::ViewerConfig(Options::ViewerOptions &ViOptRef, bool Local)
 		Builder.EndColumns();
 		Builder.AddText(lng::MViewConfigDefaultCodePage);
 		codepages::instance().FillCodePagesList(Items, false, false, false, false, true);
-		Builder.AddComboBox(ViOpt.DefaultCodePage, nullptr, 64, Items, DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+		Builder.AddComboBox(ViOpt.DefaultCodePage, 64, Items);
 	}
 
 	Builder.AddOKCancel();
@@ -836,7 +857,7 @@ void Options::EditorConfig(Options::EditorOptions &EdOptRef, bool Local)
 {
 	DialogBuilder Builder(lng::MEditConfigTitle, L"EditorSettings"sv);
 
-	std::vector<FarDialogBuilderListItem2> Items; //Must live until Dialog end
+	std::vector<DialogBuilderListItem> Items; //Must live until Dialog end
 
 	if (!Local)
 	{
@@ -847,19 +868,19 @@ void Options::EditorConfig(Options::EditorOptions &EdOptRef, bool Local)
 	}
 
 	Builder.AddText(lng::MEditConfigExpandTabsTitle);
-	static const FarDialogBuilderListItem ExpandTabsItems[] =
+	static const DialogBuilderListItem ExpandTabsItems[]
 	{
 		{ lng::MEditConfigDoNotExpandTabs, EXPAND_NOTABS },
 		{ lng::MEditConfigExpandTabs, EXPAND_NEWTABS },
 		{ lng::MEditConfigConvertAllTabsToSpaces, EXPAND_ALLTABS }
 	};
-	Builder.AddComboBox(EdOptRef.ExpandTabs, nullptr, 64, ExpandTabsItems, std::size(ExpandTabsItems), DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+	Builder.AddComboBox(EdOptRef.ExpandTabs, 64, ExpandTabsItems);
 
 	Builder.StartColumns();
 	Builder.AddCheckbox(lng::MEditConfigPersistentBlocks, EdOptRef.PersistentBlocks);
 	Builder.AddCheckbox(lng::MEditConfigDelRemovesBlocks, EdOptRef.DelRemovesBlocks);
 	Builder.AddCheckbox(lng::MEditConfigAutoIndent, EdOptRef.AutoIndent);
-	DialogItemEx *TabSize = Builder.AddIntEditField(EdOptRef.TabSize, 3);
+	const auto TabSize = Builder.AddIntEditField(EdOptRef.TabSize, 3);
 	Builder.AddTextAfter(TabSize, lng::MEditConfigTabSize);
 	Builder.AddCheckbox(lng::MEditShowWhiteSpace, EdOptRef.ShowWhiteSpace);
 	Builder.ColumnBreak();
@@ -880,7 +901,7 @@ void Options::EditorConfig(Options::EditorOptions &EdOptRef, bool Local)
 		Builder.AddCheckbox(lng::MEditAutoDetectCodePage, EdOpt.AutoDetectCodePage);
 		Builder.AddText(lng::MEditConfigDefaultCodePage);
 		codepages::instance().FillCodePagesList(Items, false, false, false, false, false);
-		Builder.AddComboBox(EdOpt.DefaultCodePage, nullptr, 64, Items, DIF_LISTAUTOHIGHLIGHT | DIF_LISTWRAPMODE | DIF_DROPDOWNLIST);
+		Builder.AddComboBox(EdOpt.DefaultCodePage, 64, Items);
 	}
 
 	Builder.AddOKCancel();
@@ -1150,7 +1171,7 @@ void Options::SetFilePanelModes()
 			ModeList->SetHelp(L"PanelViewModes"sv);
 			ModeList->SetMenuFlags(VMENU_WRAPMODE);
 			ModeList->SetId(PanelViewModesId);
-			ModeList->SetBottomTitle(msg(lng::MEditPanelModesBottom));
+			ModeList->SetBottomTitle(KeysToLocalizedText(KEY_INS, KEY_DEL, KEY_F4, KEY_CTRLENTER, KEY_CTRLSHIFTENTER));
 
 			ModeNumber=ModeList->Run([&](const Manager::Key& RawKey)
 			{
@@ -1258,9 +1279,11 @@ void Options::SetFilePanelModes()
 			MD_BUTTON_OK,
 			MD_BUTTON_RESET,
 			MD_BUTTON_CANCEL,
+
+			MD_COUNT
 		};
 
-		auto ModeDlg = MakeDialogItems(
+		auto ModeDlg = MakeDialogItems<MD_COUNT>(
 		{
 			{ DI_DOUBLEBOX, {{3,  1 }, {72, 17}}, DIF_NONE, AddNewMode ? L""sv : ModeListMenu[CurMode].Name, },
 			{ DI_TEXT,      {{5,  2 }, {0,  2 }}, DIF_NONE, msg(lng::MEditPanelModeName), },
@@ -1428,7 +1451,7 @@ struct FARConfigItem
 	}
 };
 
-static bool ParseIntValue(const string& sValue, long long& iValue)
+static bool ParseIntValue(string_view const sValue, long long& iValue)
 {
 	if (from_string(sValue, iValue))
 		return true;
@@ -1620,7 +1643,7 @@ Options::Options():
 {
 	const auto& TabSizeValidator = option::validator([](long long TabSize)
 	{
-		return in_range(1, TabSize, 512)? TabSize : DefaultTabSize;
+		return in_closed_range(1, TabSize, 512)? TabSize : DefaultTabSize;
 	});
 
 	EdOpt.TabSize.SetCallback(TabSizeValidator);
@@ -1644,9 +1667,10 @@ Options::Options():
 
 	HelpTabSize.SetCallback(option::validator([](long long Value) { return DefaultTabSize; })); // пока жестко пропишем...
 
-	const auto MacroKeyValidator = [](const string& Value, DWORD& Key, string_view const DefaultValue, DWORD DefaultKey)
+	const auto MacroKeyValidator = [](const string& Value, unsigned& Key, string_view const DefaultValue, unsigned DefaultKey)
 	{
-		if ((Key = KeyNameToKey(Value)) == static_cast<DWORD>(-1))
+		Key = KeyNameToKey(Value);
+		if (!Key)
 		{
 			Key = DefaultKey;
 			return string(DefaultValue);
@@ -1819,11 +1843,12 @@ void Options::InitConfigsData()
 		{FSSF_PRIVATE,           NKeyInterface,              L"FormatNumberSeparators"sv,        FormatNumberSeparators, L""sv},
 		{FSSF_PRIVATE,           NKeyInterface,              L"Mouse"sv,                         Mouse, true},
 		{FSSF_PRIVATE,           NKeyInterface,              L"SetIcon"sv,                       SetIcon, false},
+		{FSSF_PRIVATE,           NKeyInterface,              L"IconIndex"sv,                     IconIndex, 0},
 		{FSSF_PRIVATE,           NKeyInterface,              L"SetAdminIcon"sv,                  SetAdminIcon, true},
 		{FSSF_PRIVATE,           NKeyInterface,              L"ShowDotsInRoot"sv,                ShowDotsInRoot, false},
 		{FSSF_INTERFACE,         NKeyInterface,              L"ShowMenuBar"sv,                   ShowMenuBar, false},
 		{FSSF_PRIVATE,           NKeyInterface,              L"RedrawTimeout"sv,                 RedrawTimeout, 200},
-		{FSSF_PRIVATE,           NKeyInterface,              L"TitleAddons"sv,                   strTitleAddons, L"%Ver.%Build %Platform %Admin"sv},
+		{FSSF_PRIVATE,           NKeyInterface,              L"TitleAddons"sv,                   strTitleAddons, L"%Ver %Platform %Admin"sv},
 		{FSSF_PRIVATE,           NKeyInterface,              L"ViewerTitleFormat"sv,             strViewerTitleFormat, L"%Lng %File"sv},
 		{FSSF_PRIVATE,           NKeyInterfaceCompletion,    L"Append"sv,                        AutoComplete.AppendCompletion, false},
 		{FSSF_PRIVATE,           NKeyInterfaceCompletion,    L"ModalList"sv,                     AutoComplete.ModalList, false},
@@ -1848,7 +1873,8 @@ void Options::InitConfigsData()
 		{FSSF_PRIVATE,           NKeyPanel,                  L"CtrlAltShiftRule"sv,              PanelCtrlAltShiftRule, 0},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"CtrlFRule"sv,                     PanelCtrlFRule, false},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"Highlight"sv,                     Highlight, true},
-		{FSSF_PRIVATE,           NKeyPanel,                  L"ReverseSort"sv,                   ReverseSort, true},
+		{FSSF_PRIVATE,           NKeyPanel,                  L"ReverseSort"sv,                   AllowReverseSort, true},
+		{FSSF_PRIVATE,           NKeyPanel,                  L"ReverseSortCharCompat"sv,         ReverseSortCharCompat, false},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"RememberLogicalDrives"sv,         RememberLogicalDrives, false},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"RightClickRule"sv,                PanelRightClickRule, 2},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"SelectFolders"sv,                 SelectFolders, false},
@@ -1859,7 +1885,7 @@ void Options::InitConfigsData()
 		{FSSF_PRIVATE,           NKeyPanel,                  L"SortFolderExt"sv,                 SortFolderExt, false},
 		{FSSF_PRIVATE,           NKeyPanel,                  L"RightClickSelect"sv,              RightClickSelect, false},
 		{FSSF_PRIVATE,           NKeyPanelInfo,              L"InfoComputerNameFormat"sv,        InfoPanel.ComputerNameFormat, ComputerNamePhysicalNetBIOS},
-		{FSSF_PRIVATE,           NKeyPanelInfo,              L"InfoUserNameFormat"sv,            InfoPanel.UserNameFormat, NameUserPrincipal},
+		{FSSF_PRIVATE,           NKeyPanelInfo,              L"InfoUserNameFormat"sv,            InfoPanel.UserNameFormat, NameUnknown },
 		{FSSF_PRIVATE,           NKeyPanelInfo,              L"ShowCDInfo"sv,                    InfoPanel.ShowCDInfo, true},
 		{FSSF_PRIVATE,           NKeyPanelInfo,              L"ShowPowerStatus"sv,               InfoPanel.ShowPowerStatus, false},
 		{FSSF_PANELLAYOUT,       NKeyPanelLayout,            L"ColumnTitles"sv,                  ShowColumnTitles, true},
@@ -1905,7 +1931,7 @@ void Options::InitConfigsData()
 		{FSSF_PRIVATE,           NKeyPanelTree,              L"NetDiskTemplate"sv,               Tree.strNetDisk, NetDiskTemplate},
 		{FSSF_PRIVATE,           NKeyPanelTree,              L"NetPathTemplate"sv,               Tree.strNetPath, NetPathTemplate},
 		{FSSF_PRIVATE,           NKeyPanelTree,              L"RemovableDisk"sv,                 Tree.RemovableDisk, 2},
-		{FSSF_PRIVATE,           NKeyPanelTree,              L"RemovableDiskTemplate,"sv,        Tree.strRemovableDisk, RemovableDiskTemplate},
+		{FSSF_PRIVATE,           NKeyPanelTree,              L"RemovableDiskTemplate"sv,         Tree.strRemovableDisk, RemovableDiskTemplate},
 		{FSSF_PRIVATE,           NKeyPanelTree,              L"SaveLocalPath"sv,                 Tree.strSaveLocalPath, L""sv},
 		{FSSF_PRIVATE,           NKeyPanelTree,              L"SaveNetPath"sv,                   Tree.strSaveNetPath, L""sv},
 #endif
@@ -1933,8 +1959,8 @@ void Options::InitConfigsData()
 		{FSSF_SYSTEM,            NKeySystem,                 L"CopyOpened"sv,                    CMOpt.CopyOpened, true},
 		{FSSF_PRIVATE,           NKeySystem,                 L"CopyTimeRule"sv,                  CMOpt.CopyTimeRule, 3},
 		{FSSF_PRIVATE,           NKeySystem,                 L"CopySecurityOptions"sv,           CMOpt.CopySecurityOptions, 0},
+		{FSSF_PRIVATE,           NKeySystem,                 L"CopyPreserveTimestamps"sv,        CMOpt.PreserveTimestamps, false},
 		{FSSF_SYSTEM,            NKeySystem,                 L"DeleteToRecycleBin"sv,            DeleteToRecycleBin, true},
-		{FSSF_PRIVATE,           NKeySystem,                 L"DelThreadPriority"sv,             DelThreadPriority, THREAD_PRIORITY_NORMAL},
 		{FSSF_PRIVATE,           NKeySystem,                 L"DriveDisconnectMode"sv,           ChangeDriveDisconnectMode, true},
 		{FSSF_PRIVATE,           NKeySystem,                 L"DriveMenuMode"sv,                 ChangeDriveMode, DRIVE_SHOW_TYPE|DRIVE_SHOW_PLUGINS|DRIVE_SHOW_SIZE_FLOAT|DRIVE_SHOW_CDROM},
 		{FSSF_PRIVATE,           NKeySystem,                 L"ElevationMode"sv,                 StoredElevationMode, -1},
@@ -2094,12 +2120,11 @@ void Options::InitConfigs()
 	}
 }
 
-void Options::SetSearchColumns(const string& Columns, const string& Widths)
+void Options::SetSearchColumns(string_view const Columns, string_view const Widths)
 {
 	if (Columns.empty())
 		return;
 
-	auto& FindOpt = Global->Opt->FindOpt;
 	FindOpt.OutColumns = DeserialiseViewSettings(Columns, Widths);
 	std::tie(FindOpt.strSearchOutFormat, FindOpt.strSearchOutFormatWidth) = SerialiseViewSettings(FindOpt.OutColumns);
 }
@@ -2109,20 +2134,18 @@ void Options::SetDriveMenuHotkeys()
 	if (!ConfigProvider().GeneralCfg()->GetValue<bool>(L"Interface"sv, L"InitDriveMenuHotkeys"sv, true))
 		return;
 
-	using namespace guid_parse::literals;
-
 	static constexpr struct
 	{
-		KnownModulesIDs::GuidOption KnownModulesIDs::* Option;
-		GUID MenuId;
+		KnownModulesIDs::UuidOption KnownModulesIDs::* Option;
+		UUID MenuId;
 		string_view Hotkey;
 	}
 	DriveMenuHotkeys[]
 	{
-		{ &KnownModulesIDs::ProcList, "61026851-2643-4C67-BF80-D3C77A3AE830"_guid, L"0"sv },
-		{ &KnownModulesIDs::TmpPanel, "F98C70B3-A1AE-4896-9388-C5C8E05013B7"_guid, L"1"sv },
-		{ &KnownModulesIDs::Netbox,   "C9FB4F53-54B5-48FF-9BA2-E8EB27F012A2"_guid, L"2"sv },
-		{ &KnownModulesIDs::Network,  "24B6DD41-DF12-470A-A47C-8675ED8D2ED4"_guid, L"3"sv },
+		{ &KnownModulesIDs::ProcList, "61026851-2643-4C67-BF80-D3C77A3AE830"_uuid, L"0"sv },
+		{ &KnownModulesIDs::TmpPanel, "F98C70B3-A1AE-4896-9388-C5C8E05013B7"_uuid, L"1"sv },
+		{ &KnownModulesIDs::Netbox,   "C9FB4F53-54B5-48FF-9BA2-E8EB27F012A2"_uuid, L"2"sv },
+		{ &KnownModulesIDs::Network,  "24B6DD41-DF12-470A-A47C-8675ED8D2ED4"_uuid, L"3"sv },
 	};
 
 	for (const auto& i: DriveMenuHotkeys)
@@ -2133,36 +2156,123 @@ void Options::SetDriveMenuHotkeys()
 	ConfigProvider().GeneralCfg()->SetValue(L"Interface"sv, L"InitDriveMenuHotkeys"sv, false);
 }
 
+static std::optional<std::pair<panel_sort, sort_order>> deserialise_sort_layer(string_view const LayerStr)
+{
+	int Sort = -1;
+	int Order = -1;
+
+	for (const auto& Str: enum_tokens(LayerStr, L":"sv))
+	{
+		switch (Str.front())
+		{
+		case L'S':
+			if (!from_string(Str.substr(1), Sort) || !in_closed_range(0, Sort, static_cast<int>(panel_sort::COUNT)))
+				return {};
+			break;
+
+		case L'O':
+			if (!from_string(Str.substr(1), Order) || !in_closed_range(static_cast<int>(sort_order::first), Order, static_cast<int>(sort_order::last)))
+				return {};
+			break;
+		}
+	}
+
+	if (Sort == -1 || Order == -1)
+		return {};
+
+	return std::pair(panel_sort{ Sort }, sort_order{ Order });
+}
+
+static auto deserialise_sort_layers(string_view const LayersStr)
+{
+	std::vector<std::pair<panel_sort, sort_order>> Layers;
+
+	for (const auto& Str: enum_tokens(LayersStr, L" "sv))
+	{
+		if (const auto Layer = deserialise_sort_layer(Str); Layer && !contains(Layers, *Layer))
+			Layers.emplace_back(*Layer);
+	}
+
+	return Layers;
+}
+
+static auto serialise_sort_layer(std::pair<panel_sort, sort_order> const& Layer)
+{
+	return format(FSTR(L"S{0}:O{1}"), Layer.first, Layer.second);
+}
+
+static auto serialise_sort_layers(span<std::pair<panel_sort, sort_order> const> const Layers)
+{
+	return join(select(Layers, serialise_sort_layer), L" "sv);
+}
+
+void Options::ReadSortLayers()
+{
+	PanelSortLayers.resize(static_cast<size_t>(panel_sort::COUNT));
+
+	for (auto& [Layers, i]: enumerate(PanelSortLayers))
+	{
+		string LayersStr;
+		if (ConfigProvider().GeneralCfg()->GetValue(NKeyPanelSortLayers, str(i), LayersStr))
+			Layers = deserialise_sort_layers(LayersStr);
+
+		if (Layers.empty())
+		{
+			const auto DefaultLayers = default_sort_layers(static_cast<panel_sort>(i));
+			Layers.assign(ALL_CONST_RANGE(DefaultLayers));
+		}
+	}
+}
+
+void Options::SaveSortLayers(bool const Always)
+{
+	auto& Cfg = *ConfigProvider().GeneralCfg();
+
+	for (const auto& [Layers, i]: enumerate(PanelSortLayers))
+	{
+		const auto DefaultLayers = default_sort_layers(static_cast<panel_sort>(i));
+		if (std::equal(ALL_CONST_RANGE(Layers), ALL_CONST_RANGE(DefaultLayers)))
+		{
+			Cfg.DeleteValue(NKeyPanelSortLayers, str(i));
+			continue;
+		}
+
+		const auto LayersStr = serialise_sort_layers(Layers);
+		if ( Always || (LayersStr != Cfg.GetValue<string>(NKeyPanelSortLayers, str(i))))
+			Cfg.SetValue(NKeyPanelSortLayers, str(i), LayersStr);
+	}
+}
+
 void Options::Load(overrides&& Overrides)
 {
-	// KnownModulesIDs::GuidOption::Default pointer is used in the static config structure, so it MUST be initialized before calling InitConfig()
+	// KnownModulesIDs::UuidOption::Default pointer is used in the static config structure, so it MUST be initialized before calling InitConfig()
 	static struct
 	{
-		KnownModulesIDs::GuidOption KnownModulesIDs::* Option;
-		const GUID& Id;
+		KnownModulesIDs::UuidOption KnownModulesIDs::* Option;
+		const UUID& Id;
 		string StrId;
 	}
-	DefaultKnownGuids[]
+	DefaultKnownIds[]
 	{
-		{ &KnownModulesIDs::Network,  NetworkGuid,  },
-		{ &KnownModulesIDs::Emenu,    EMenuGuid,    },
-		{ &KnownModulesIDs::Arclite,  ArcliteGuid,  },
-		{ &KnownModulesIDs::Luamacro, LuamacroGuid, },
-		{ &KnownModulesIDs::Netbox,   NetBoxGuid,   },
-		{ &KnownModulesIDs::ProcList, ProcListGuid, },
-		{ &KnownModulesIDs::TmpPanel, TmpPanelGuid, },
+		{ &KnownModulesIDs::Network,  NetworkId,  },
+		{ &KnownModulesIDs::Emenu,    EMenuId,    },
+		{ &KnownModulesIDs::Arclite,  ArcliteId,  },
+		{ &KnownModulesIDs::Luamacro, LuamacroId, },
+		{ &KnownModulesIDs::Netbox,   NetBoxId,   },
+		{ &KnownModulesIDs::ProcList, ProcListId, },
+		{ &KnownModulesIDs::TmpPanel, TmpPanelId, },
 	};
 
-	static_assert(std::size(DefaultKnownGuids) == sizeof(KnownModulesIDs) / sizeof(KnownModulesIDs::GuidOption));
+	static_assert(std::size(DefaultKnownIds) == sizeof(KnownModulesIDs) / sizeof(KnownModulesIDs::UuidOption));
 
-	for(auto& i: DefaultKnownGuids)
+	for(auto& i: DefaultKnownIds)
 	{
-		i.StrId = GuidToStr(i.Id);
+		i.StrId = uuid::str(i.Id);
 
-		auto& GuidOption = std::invoke(i.Option, KnownIDs);
-		GuidOption.Id = i.Id;
-		GuidOption.StrId = i.StrId;
-		GuidOption.Default = i.StrId;
+		auto& UuidOption = std::invoke(i.Option, KnownIDs);
+		UuidOption.Id = i.Id;
+		UuidOption.StrId = i.StrId;
+		UuidOption.Default = i.StrId;
 	}
 
 	InitConfigs();
@@ -2227,16 +2337,19 @@ void Options::Load(overrides&& Overrides)
 			ApplyDefaultMaskGroups();
 	}
 
-	for (auto& [Ptr, Id, Str]: DefaultKnownGuids)
+	for (auto& [Ptr, Id, Str]: DefaultKnownIds)
 	{
-		auto& GuidOption = std::invoke(Ptr, KnownIDs);
-		if (GuidOption.StrId.empty() || !StrToGuid(GuidOption.StrId, GuidOption.Id))
-		{
-			GuidOption.Id = GUID_NULL;
-		}
+		auto& UuidOption = std::invoke(Ptr, KnownIDs);
+
+		if (const auto Result = uuid::try_parse(UuidOption.StrId.Get()))
+			UuidOption.Id = *Result;
+		else
+			UuidOption.Id = {};
 	}
 
 	SetDriveMenuHotkeys();
+
+	ReadSortLayers();
 
 /* *************************************************** </ПОСТПРОЦЕССЫ> */
 
@@ -2304,8 +2417,16 @@ void Options::Save(bool Manual)
 
 	FileFilter::Save(Manual);
 	SavePanelModes(Manual);
+	SaveSortLayers(Manual);
 	Global->CtrlObject->Macro.SaveMacros(Manual);
 }
+
+enum
+{
+	ac_item_listbox,
+
+	ac_count
+};
 
 intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void* Param2)
 {
@@ -2316,6 +2437,28 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 			reinterpret_cast<const FARConfigItem*>(Dlg->GetListItemSimpleUserData(0, Index));
 	};
 
+	const auto EditItem = [&](bool Hex = false)
+	{
+		FarListInfo ListInfo{ sizeof(ListInfo) };
+		Dlg->SendMessage(DM_LISTINFO, ac_item_listbox, &ListInfo);
+
+		const auto CurrentItem = GetConfigItem(ListInfo.SelectPos);
+		if (!CurrentItem)
+			return;
+
+		if (!CurrentItem->Edit(Hex))
+			return;
+
+		SCOPED_ACTION(Dialog::suppress_redraw)(Dlg);
+
+		auto& ConfigStrings = *reinterpret_cast<std::vector<string>*>(Dlg->SendMessage(DM_GETDLGDATA, 0, nullptr));
+		FarListUpdate flu{ sizeof(flu), ListInfo.SelectPos, CurrentItem->MakeListItem(ConfigStrings[ListInfo.SelectPos]) };
+		Dlg->SendMessage(DM_LISTUPDATE, ac_item_listbox, &flu);
+
+		FarListPos flp{ sizeof(flp), ListInfo.SelectPos, ListInfo.TopPos };
+		Dlg->SendMessage(DM_LISTSETCURPOS, ac_item_listbox, &flp);
+	};
+
 	switch (Msg)
 	{
 	case DN_INITDIALOG:
@@ -2323,11 +2466,13 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 			SCOPED_ACTION(Dialog::suppress_redraw)(Dlg);
 
 			FarListTitles Titles{ sizeof(Titles) };
-			Titles.Title = msg(lng::MConfigEditor).c_str();
-			Titles.Bottom = msg(lng::MConfigEditorHelp).c_str();
-			Dlg->SendMessage(DM_LISTSETTITLES, 0, &Titles);
 
-			Dlg->SendMessage(DM_LISTSORT, 0, nullptr);
+			const auto BottomTitle = KeysToLocalizedText(KEY_SHIFTF1, KEY_F4, KEY_SHIFTF4, KEY_CTRLH);
+			Titles.Title = msg(lng::MConfigEditor).c_str();
+			Titles.Bottom = BottomTitle.c_str();
+			Dlg->SendMessage(DM_LISTSETTITLES, ac_item_listbox, &Titles);
+
+			Dlg->SendMessage(DM_LISTSORT, ac_item_listbox, nullptr);
 		}
 		break;
 
@@ -2335,17 +2480,17 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 		{
 			SCOPED_ACTION(Dialog::suppress_redraw)(Dlg);
 
-			COORD Size{ static_cast<SHORT>(std::max(ScrX - 4, 60)), static_cast<SHORT>(std::max(ScrY - 2, 20)) };
+			COORD Size{ static_cast<short>(std::max(ScrX - 4, 60)), static_cast<short>(std::max(ScrY - 2, 20)) };
 			Dlg->SendMessage(DM_RESIZEDIALOG, 0, &Size);
-			SMALL_RECT ListPos{ 3, 1, static_cast<SHORT>(Size.X - 4), static_cast<SHORT>(Size.Y - 2) };
-			Dlg->SendMessage(DM_SETITEMPOSITION, 0, &ListPos);
+			SMALL_RECT ListPos{ 3, 1, static_cast<short>(Size.X - 4), static_cast<short>(Size.Y - 2) };
+			Dlg->SendMessage(DM_SETITEMPOSITION, ac_item_listbox, &ListPos);
 		}
 		break;
 
 	case DN_CONTROLINPUT:
 		{
 			const auto record = static_cast<const INPUT_RECORD*>(Param2);
-			if (record->EventType==KEY_EVENT)
+			if (Param1 == ac_item_listbox && record->EventType==KEY_EVENT)
 			{
 				switch (InputRecordToKey(record))
 				{
@@ -2365,11 +2510,11 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 					break;
 
 				case KEY_F4:
-					Dlg->SendMessage(DM_CLOSE, 0, nullptr);
+					EditItem();
 					break;
 
 				case KEY_SHIFTF4:
-					Dlg->SendMessage(DM_CLOSE, 1, nullptr);
+					EditItem(true);
 					break;
 
 				case KEY_CTRLH:
@@ -2384,7 +2529,11 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 						for(int i = 0; i < static_cast<int>(ListInfo.ItemsNumber); ++i)
 						{
 							FarListGetItem Item={sizeof(FarListGetItem), i};
-							Dlg->SendMessage(DM_LISTGETITEM, 0, &Item);
+
+							// BUGBUG(?) DM_LISTGETITEM will return false if everything is filtered out
+							if (!Dlg->SendMessage(DM_LISTGETITEM, Param1, &Item))
+								continue;
+
 							bool NeedUpdate = false;
 							if(HideUnchanged)
 							{
@@ -2405,7 +2554,7 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 							if(NeedUpdate)
 							{
 								FarListUpdate UpdatedItem={sizeof(FarListGetItem), i, Item.Item};
-								Dlg->SendMessage(DM_LISTUPDATE, 0, &UpdatedItem);
+								Dlg->SendMessage(DM_LISTUPDATE, Param1, &UpdatedItem);
 							}
 						}
 						HideUnchanged = !HideUnchanged;
@@ -2417,28 +2566,13 @@ intptr_t Options::AdvancedConfigDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 		break;
 
 	case DN_CLOSE:
-		if (Param1 == 0 || Param1 == 1)
+		if (Param1 == ac_item_listbox)
 		{
-			FarListInfo ListInfo = {sizeof(ListInfo)};
-			Dlg->SendMessage(DM_LISTINFO, 0, &ListInfo);
-
-			if (const auto CurrentItem = GetConfigItem(ListInfo.SelectPos))
-			{
-				if (CurrentItem->Edit(Param1 != 0))
-				{
-					SCOPED_ACTION(Dialog::suppress_redraw)(Dlg);
-
-					FarListUpdate flu = { sizeof(flu), ListInfo.SelectPos };
-					auto& ConfigStrings = *reinterpret_cast<std::vector<string>*>(Dlg->SendMessage(DM_GETDLGDATA, 0, nullptr));
-					flu.Item = CurrentItem->MakeListItem(ConfigStrings[ListInfo.SelectPos]);
-					Dlg->SendMessage(DM_LISTUPDATE, 0, &flu);
-					FarListPos flp = { sizeof(flp), ListInfo.SelectPos, ListInfo.TopPos };
-					Dlg->SendMessage(DM_LISTSETCURPOS, 0, &flp);
-				}
-			}
+			EditItem(false);
 			return FALSE;
 		}
 		break;
+
 	default:
 		break;
 	}
@@ -2452,7 +2586,7 @@ bool Options::AdvancedConfig(config_type Mode)
 
 	const int DlgWidth = std::max(ScrX-4, 60), DlgHeight = std::max(ScrY-2, 20);
 
-	auto AdvancedConfigDlg = MakeDialogItems(
+	auto AdvancedConfigDlg = MakeDialogItems<ac_count>(
 	{
 		{ DI_LISTBOX, {{3, 1}, {DlgWidth-4, DlgHeight-2}}, DIF_NONE, L"far:config"sv },
 	});
@@ -2465,7 +2599,7 @@ bool Options::AdvancedConfig(config_type Mode)
 
 	FarList Items={sizeof(FarList), items.size(), items.data()};
 
-	AdvancedConfigDlg[0].ListItems = &Items;
+	AdvancedConfigDlg[ac_item_listbox].ListItems = &Items;
 
 	const auto Dlg = Dialog::create(AdvancedConfigDlg, &Options::AdvancedConfigDlgProc, &Strings);
 	Dlg->SetHelp(L"FarConfig"sv);
@@ -2509,17 +2643,8 @@ void Options::ReadPanelModes()
 {
 	const auto cfg = ConfigProvider().CreatePanelModesConfig();
 
-	auto root = HierarchicalConfig::root_key;
-
-	const auto ReadMode = [&](auto& i, size_t Index)
+	const auto ReadMode = [&](const HierarchicalConfig::key& Key, PanelViewSettings& i)
 	{
-		const auto Key = cfg->FindByName(root, str(Index));
-
-		if (!Key)
-		{
-			return false;
-		}
-
 		i.Name = cfg->GetValue<string>(Key, ModesNameName);
 		i.Flags = cfg->GetValue<unsigned long long>(Key, ModesFlagsName);
 
@@ -2536,22 +2661,20 @@ void Options::ReadPanelModes()
 			const auto StatusColumnWidths = cfg->GetValue<string>(Key, ModesStatusColumnWidthsName);
 			i.StatusColumns = DeserialiseViewSettings(StatusColumnTitles, StatusColumnWidths);
 		}
-
-		return true;
 	};
 
-	for_each_cnt(m_ViewSettings.begin(), m_ViewSettings.begin() + predefined_panel_modes_count, ReadMode);
-
-	root = cfg->FindByName(cfg->root_key, CustomModesKeyName);
-
-	if (root)
+	for (auto& [Item, Index]: enumerate(span(m_ViewSettings).subspan(0, predefined_panel_modes_count)))
 	{
-		for (size_t i = 0; ; ++i)
+		if (const auto Key = cfg->FindByName(cfg->root_key, str(Index)))
+			ReadMode(Key, Item);
+	}
+
+	if (const auto CustomModesRoot = cfg->FindByName(cfg->root_key, CustomModesKeyName))
+	{
+		for (const auto& Key: cfg->KeysEnumerator(CustomModesRoot))
 		{
 			PanelViewSettings NewSettings;
-			if (!ReadMode(NewSettings, i))
-				break;
-
+			ReadMode(Key, NewSettings);
 			m_ViewSettings.emplace_back(std::move(NewSettings));
 		}
 	}
@@ -2569,35 +2692,38 @@ void Options::SavePanelModes(bool always)
 
 	SCOPED_ACTION(auto)(cfg->ScopedTransaction());
 
-	auto root = cfg->root_key;
-
-	const auto SaveMode = [&](const auto& i, size_t Index)
+	const auto SaveMode = [&](HierarchicalConfig::key const ModesKey, PanelViewSettings const& Item, size_t Index)
 	{
-		const auto [PanelTitles, PanelWidths] = SerialiseViewSettings(i.PanelColumns);
-		const auto [StatusTitles, StatusWidths] = SerialiseViewSettings(i.StatusColumns);
+		const auto [PanelTitles, PanelWidths] = SerialiseViewSettings(Item.PanelColumns);
+		const auto [StatusTitles, StatusWidths] = SerialiseViewSettings(Item.StatusColumns);
 
-		if(const auto Key = cfg->CreateKey(root, str(Index)))
-		{
-			cfg->SetValue(Key, ModesNameName, i.Name);
-			cfg->SetValue(Key, ModesColumnTitlesName, PanelTitles);
-			cfg->SetValue(Key, ModesColumnWidthsName, PanelWidths);
-			cfg->SetValue(Key, ModesStatusColumnTitlesName, StatusTitles);
-			cfg->SetValue(Key, ModesStatusColumnWidthsName, StatusWidths);
-			cfg->SetValue(Key, ModesFlagsName, i.Flags);
-		}
+		const auto Key = cfg->CreateKey(ModesKey, str(Index));
+
+		cfg->SetValue(Key, ModesNameName, Item.Name);
+		cfg->SetValue(Key, ModesColumnTitlesName, PanelTitles);
+		cfg->SetValue(Key, ModesColumnWidthsName, PanelWidths);
+		cfg->SetValue(Key, ModesStatusColumnTitlesName, StatusTitles);
+		cfg->SetValue(Key, ModesStatusColumnWidthsName, StatusWidths);
+		cfg->SetValue(Key, ModesFlagsName, Item.Flags);
 	};
 
-	for_each_cnt(ViewSettings.cbegin(), ViewSettings.cbegin() + predefined_panel_modes_count, SaveMode);
-
-	if ((root = cfg->FindByName(cfg->root_key, CustomModesKeyName)))
+	for (const auto& [Value, Index]: enumerate(span(ViewSettings).subspan(0, predefined_panel_modes_count)))
 	{
-		cfg->DeleteKeyTree(root);
+		SaveMode(cfg->root_key, Value, Index);
 	}
 
-	if ((root = cfg->CreateKey(cfg->root_key, CustomModesKeyName)))
+	if (const auto ModesKey = cfg->FindByName(cfg->root_key, CustomModesKeyName))
 	{
-		for_each_cnt(ViewSettings.cbegin() + predefined_panel_modes_count, ViewSettings.cend(), SaveMode);
+		cfg->DeleteKeyTree(ModesKey);
 	}
+
+	const auto ModesKey = cfg->CreateKey(cfg->root_key, CustomModesKeyName);
+
+	for (const auto& [Value, Index]: enumerate(span(ViewSettings).subspan(predefined_panel_modes_count)))
+	{
+		SaveMode(ModesKey, Value, Index);
+	}
+
 	m_ViewSettingsChanged = false;
 }
 
@@ -2723,24 +2849,17 @@ static void SetLeftRightMenuChecks(menu_item* pMenu, bool bLeft)
 	switch (pPanel->GetType())
 	{
 	case panel_type::FILE_PANEL:
-		{
-			int MenuLine = pPanel->GetViewMode();
-
-			if (MenuLine <= MENU_LEFT_ALTERNATIVEVIEW)
-			{
-				if (!MenuLine)
-					pMenu[MENU_LEFT_ALTERNATIVEVIEW].SetCheck();
-				else
-					pMenu[MenuLine-1].SetCheck();
-			}
-		}
+		pMenu[RealModeToDisplay(pPanel->GetViewMode())].SetCheck();
 		break;
+
 	case panel_type::INFO_PANEL:
 		pMenu[MENU_LEFT_INFOPANEL].SetCheck();
 		break;
+
 	case panel_type::TREE_PANEL:
 		pMenu[MENU_LEFT_TREEPANEL].SetCheck();
 		break;
+
 	case panel_type::QVIEW_PANEL:
 		pMenu[MENU_LEFT_QUICKVIEW].SetCheck();
 		break;
@@ -2760,7 +2879,7 @@ void Options::ShellOptions(bool LastCommand, const MOUSE_EVENT_RECORD *MouseEven
 		}
 	};
 
-	const auto no_tree = Global->Opt->Tree.TurnOffCompletely? LIF_HIDDEN : LIF_NONE;
+	const auto no_tree = Tree.TurnOffCompletely? LIF_HIDDEN : LIF_NONE;
 
 	menu_item LeftMenu[]
 	{
@@ -3222,7 +3341,7 @@ void Options::ShellOptions(bool LastCommand, const MOUSE_EVENT_RECORD *MouseEven
 			case MENU_OPTIONS_CODEPAGESSETTINGS: // Code pages
 				{
 					uintptr_t CodePage = CP_DEFAULT;
-					codepages::instance().SelectCodePage(CodePage, true, false, true);
+					codepages::instance().SelectCodePage(CodePage, false, true);
 				}
 				break;
 			case MENU_OPTIONS_COLORS:  // Colors
@@ -3264,7 +3383,7 @@ int GetFarIniInt(string_view const AppName, string_view const KeyName, int Defau
 	return GetPrivateProfileInt(null_terminated(AppName).c_str(), null_terminated(KeyName).c_str(), Default, Global->g_strFarINI.c_str());
 }
 
-std::chrono::steady_clock::duration GetRedrawTimeout()
+std::chrono::steady_clock::duration GetRedrawTimeout() noexcept
 {
 	return std::chrono::milliseconds(Global->Opt->RedrawTimeout);
 }

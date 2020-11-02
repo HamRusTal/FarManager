@@ -47,12 +47,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 WARNING_PUSH(3)
 
-WARNING_DISABLE_MSC(4396) // https://msdn.microsoft.com/en-us/library/bb384968.aspx 'name': the inline specifier cannot be used when a friend declaration refers to a specialization of a function template
-WARNING_DISABLE_MSC(4702) // https://msdn.microsoft.com/en-us/library/c26da40e.aspx unreachable code
-
 WARNING_DISABLE_GCC("-Wctor-dtor-privacy")
-WARNING_DISABLE_GCC("-Wmaybe-uninitialized")
-WARNING_DISABLE_GCC("-Wduplicated-branches")
 
 WARNING_DISABLE_CLANG("-Weverything")
 
@@ -67,26 +62,44 @@ auto format(F&& Format, args&&... Args)
 	return fmt::format(FWD(Format), FWD(Args)...);
 }
 
+template<typename I, typename F, typename... args>
+auto format_to(I&& Iterator, F&& Format, args&&... Args)
+{
+	return fmt::format_to(FWD(Iterator), FWD(Format), FWD(Args)...);
+}
+
+template<typename F, typename... args>
+auto format_to(string& Str, F&& Format, args&&... Args)
+{
+	return fmt::format_to(std::back_inserter(Str), FWD(Format), FWD(Args)...);
+}
+
 // use FSTR or string_view instead of string literals
 template<typename char_type, size_t N, typename... args>
 auto format(const char_type(&Format)[N], args&&...) = delete;
 
-#if 1
-#define FSTR(str) FMT_STRING(str)
-#else
-#define FSTR(str) str ## sv
-#endif
+template<typename I, typename char_type, size_t N, typename... args>
+auto format_to(I&&, const char_type(&Format)[N], args&&...) = delete;
 
+template<typename char_type, size_t N, typename... args>
+auto format_to(string&, const char_type(&Format)[N], args&&...) = delete;
+
+#define FSTR(str) FMT_STRING(str ## sv)
 
 template<typename T>
-auto str(T&& Value)
+auto str(const T& Value)
 {
-	return fmt::to_wstring(FWD(Value));
+	return fmt::to_wstring(Value);
 }
 
 inline auto str(const void* Value)
 {
 	return format(FSTR(L"0x{0:0{1}X}"), reinterpret_cast<uintptr_t>(Value), sizeof(Value) * 2);
+}
+
+inline auto str(void* Value)
+{
+	return str(static_cast<void const*>(Value));
 }
 
 string str(const char*) = delete;

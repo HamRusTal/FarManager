@@ -42,23 +42,30 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/noncopyable.hpp"
-#include "common/range.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-DWORD ConvertYearToFull(DWORD ShortYear);
-
 using time_component = unsigned int;
-inline constexpr auto time_none = std::numeric_limits<time_component>::max();
-using date_ranges = std::array<std::pair<size_t, size_t>, 3>;
-using time_ranges = std::array<std::pair<size_t, size_t>, 5>;
-inline constexpr time_ranges DefaultTimeRanges{{ {0, 2}, { 3, 2 }, { 6, 2 }, { 9, 3 }, { 13, 4 }}};
+constexpr auto time_none = std::numeric_limits<time_component>::max();
 
-void ParseTimeComponents(string_view Src, span<const std::pair<size_t, size_t>> Ranges, span<time_component> Dst, time_component Default = time_none);
-os::chrono::time_point ParseTimePoint(const string& Date, const string& Time, int DateFormat, const date_ranges& DateRanges, const time_ranges& TimeRanges);
-os::chrono::duration ParseDuration(const string& Date, const string& Time, const time_ranges& TimeRanges);
+struct detailed_time_point
+{
+	unsigned
+		Year,
+		Month,
+		Day,
+		Hour,
+		Minute,
+		Second,
+		Hectonanosecond;
+};
+
+detailed_time_point parse_detailed_time_point(string_view Date, string_view Time, int DateFormat);
+
+os::chrono::time_point ParseTimePoint(string_view Date, string_view Time, int DateFormat);
+os::chrono::duration ParseDuration(string_view Date, string_view Time);
 
 /*
 FullYear:
@@ -76,7 +83,6 @@ std::tuple<string, string> ConvertDuration(os::chrono::duration Duration);
 
 string ConvertDurationToHMS(os::chrono::duration Duration);
 
-string StrFTime(string_view Format, const tm* Time);
 string MkStrFTime(string_view Format = {});
 
 bool utc_to_local(os::chrono::time_point UtcTime, SYSTEMTIME& LocalTime);
@@ -88,32 +94,12 @@ class time_check: noncopyable
 
 public:
 	enum class mode { delayed, immediate };
-	time_check(mode Mode, clock_type::duration Interval):
-		m_Begin(Mode == mode::delayed? clock_type::now() : clock_type::now() - Interval),
-		m_Interval(Interval)
-	{
-	}
 
-	void reset(clock_type::time_point Value = clock_type::now()) const
-	{
-		m_Begin = Value;
-	}
-
-	bool is_time() const
-	{
-		return clock_type::now() - m_Begin > m_Interval;
-	}
-
-	explicit operator bool() const noexcept
-	{
-		const auto Current = clock_type::now();
-		if (m_Interval != 0s && Current - m_Begin > m_Interval)
-		{
-			reset(Current);
-			return true;
-		}
-		return false;
-	}
+	explicit time_check(mode Mode = mode::delayed) noexcept;
+	time_check(mode Mode, clock_type::duration Interval) noexcept;
+	void reset(clock_type::time_point Value = clock_type::now()) const noexcept;
+	bool is_time() const noexcept;
+	explicit operator bool() const noexcept;
 
 private:
 	mutable clock_type::time_point m_Begin;

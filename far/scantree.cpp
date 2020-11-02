@@ -32,6 +32,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "scantree.hpp"
 
@@ -71,7 +74,7 @@ enum tree_item_flags
 };
 
 
-struct ScanTree::scantree_item
+class ScanTree::scantree_item
 {
 public:
 	NONCOPYABLE(scantree_item);

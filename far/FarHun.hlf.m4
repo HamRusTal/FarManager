@@ -21,7 +21,6 @@
 @Interface.CursorSize2=Interface.CursorSize
 @Interface.CursorSize3=Interface.CursorSize
 @Interface.CursorSize4=Interface.CursorSize
-@Interface.DelShowSelected=Interface.DelHighlightSelected
 @Interface.EditorTitleFormat=TitleFormat
 @Interface.ViewerTitleFormat=TitleFormat
 @InterfaceSettings=InterfSettings
@@ -39,9 +38,9 @@
 @System.MsWheelDeltaHelp=System.MsWheelDelta
 @System.MsWheelDeltaView=System.MsWheelDelta
 @Viewer.F8CPs=Editor.F8CPs
-@XLat.Rules1=XLat.Tables
-@XLat.Rules2=XLat.Tables
-@XLat.Rules3=XLat.Tables
+@XLat.Rules1=XLat.Rules
+@XLat.Rules2=XLat.Rules
+@XLat.Rules3=XLat.Rules
 @XLat.Table1=XLat.Tables
 @XLat.Table2=XLat.Tables
 
@@ -196,7 +195,8 @@ nyitja meg. A -e után megadható, hogy melyik sor hányadik karakterhelyére
 álljon a kurzor.
  Például: far -e70:2 readme.
 
- #-p[<path>]#  A "fő" plugineket a <path>-ben megadott elérési út
+ #-p[<path>]#
+ A "fő" plugineket a <path>-ben megadott elérési út
 mappáiban keresi. Több keresési útvonal is megadható, ";"-vel elválasztva.
 
  Példa: #far -p%USERPROFILE%\\Far\\Plugins#
@@ -226,8 +226,7 @@ mappákból töltődnek be.
  A Far induláskor nem tölti be a registryből a makróit.
 
  #-ma#
- A "Futtatás a Far indítása után" opciójú makrók nem
-indulnak el a Far-ral.
+ A "Futtatás a Far indítása után" opciójú makrók nem indulnak el a Far-ral.
 
  #-s <profilepath> [<localprofilepath>]#
  Custom location for Far configuration files (overrides the ini file).
@@ -277,6 +276,10 @@ title.
 
  #-set:<parameter>=<value>#
  Override the configuration parameter, see ~far:config~@FarConfig@ for details.
+
+ #-x#
+ Disable exception handling. This parameter is for developers
+and is not recommended for normal operations.
 
  A parancssorban megadható legfeljebb két olyan elérési út, ami mappára,
 fájlra vagy tömörített fájlra mutat. Az első elérési út az aktív, a második a
@@ -408,18 +411,26 @@ $ #Panelvezérlő parancsok#
 ~info panel~@InfoPanel@, nem az aktív, hanem a passzív panel vált a
 megfelelő mappára.
 
- A kijelölt fájlok neveit a vágólapra másolja             #Ctrl+Ins#
- (ha a parancssor üres)
- Copy the files to clipboard                                 #Ctrl+C#
- (ignore command line state)
- ^<wrap>Files, copied from the panels, can be pasted to other applications,
-e.g. Explorer.
- A kijelölt fájlok neveit a vágólapra másolja        #Ctrl+Shift+Ins#
- (a parancssor állapotától függetlenül)
- A kijelölt fájlok neveit elérési úttal a vágólapra   #Alt+Shift+Ins#
- másolja (a parancssor állapotától függetlenül)
- A kijelölt fájlok hálózati (UNC) neveit a vágólapra   #Ctrl+Alt+Ins#
- másolja (a parancssor állapotától függetlenül)
+ #Ctrl+Ins#
+ A kijelölt fájlok neveit a vágólapra másolja (ha a parancssor üres).
+
+ #Ctrl+Shift+Ins#
+ A kijelölt fájlok neveit a vágólapra másolja.
+
+ #Alt+Shift+Ins#
+ A kijelölt fájlok neveit elérési úttal a vágólapra másolja.
+
+ #Ctrl+Alt+Ins#
+ A kijelölt fájlok neveit igazi a vágólapra másolja.
+
+
+ #Ctrl+Shift+C#
+ Copy the selected files to clipboard.
+
+ #Ctrl+Shift+X#
+ Cut the selected files to clipboard.
+
+ Files, copied or cut from the panels, can be pasted to other applications, e.g. Explorer.
 
  See also the list of ~macro keys~@KeyMacroShellList@, available in the panels.
 
@@ -792,7 +803,7 @@ sztringek mindig megmaradnak.
  Párbeszédablak szerkesztési előzményeinek törlése              #Del#
 
  Párbeszédablak szerkesztési előzmény aktuális elemének   #Shift+Del#
- törlése (ha az elem nincs rögzítve)                 
+ törlése (ha az elem nincs rögzítve)
 
  A párbeszédablak alapértelmezett elemére állítja a kurzort    #PgDn#
 
@@ -1005,7 +1016,7 @@ bővítési lehetőséget biztosítanak a Far-nak.
  * Windows gyorsbillentyűk létrehozása, módosítása.
  * A FidoNetes fájlok és szövegek kényelmesebb kezelése.
  * Fájlok UU kódolása és dekódolása.
- * A WinAmp vezérlése, MP3 tag-ek szerkesztése.
+ * A Winamp vezérlése, MP3 tag-ek szerkesztése.
  * A Quake (nevű játékprogram) PAK fájljainak kezelése.
  * Nyomtatóvezérlés, helyi és hálózati egyaránt.
  * ODBC kompatibilis adatbázisok lekérdezéseihez kapcsolódás, hibakeresés.
@@ -1252,7 +1263,7 @@ Supported types: CD-ROM, CD-RW, CD-RW/DVD, DVD-ROM, DVD-RW and DVD-RAM.
 
  Can be one of:
 
- - #Default#
+ - #Bejelentkezési név#
    User login, (for example, JeffSmith)
 
  - #Fully Qualified Domain Name#
@@ -1265,19 +1276,23 @@ Supported types: CD-ROM, CD-RW, CD-RW/DVD, DVD-ROM, DVD-RW and DVD-RAM.
    ^<wrap>A "friendly" display name (for example, Jeff Smith). The display name is not necessarily the defining relative distinguished name (RDN).
 
  - #Unique Id#
-   ^<wrap>A GUID string (for example, {4fa050f0-f561-11cf-bdd9-00aa003a77b6}).
+   ^<wrap>An UUID string (for example, {4fa050f0-f561-11cf-bdd9-00aa003a77b6}).
 
  - #Canonical Name#
    ^<wrap>The complete canonical name (for example, engineering.microsoft.com/software/someone). The domain-only version includes a trailing forward slash (/).
 
  - #User Principial Name#
-   ^<wrap>The user principal name (for example, someone@example.com).
+   ^<wrap>The user principal name (for example, someone@@example.com).
 
  - #Service Principal#
-   ^<wrap>The generalized service principal name (for example, www/www.microsoft.com@microsoft.com).
+   ^<wrap>The generalized service principal name (for example, www/www.microsoft.com@@microsoft.com).
 
  - #DNS Domain#
    ^<wrap>The DNS domain name followed by a backward-slash and the SAM user name.
+
+   #Utónév#
+
+   #Vezetéknév#
 
  The ouput format depends on the domain structure.
 
@@ -1506,30 +1521,30 @@ részletezi a lehetőségeit.
 
 @OptMenu
 $ #Menük: Beállítások menü#
- #Rendszer#             Megjeleníti a ~rendszer beállítások~@SystemSettings@
- #beállítások#          párbeszédablakot.
+ #Rendszer#              Megjeleníti a ~rendszer beállítások~@SystemSettings@
+ #beállítások#           párbeszédablakot.
 
- #Panel beállítások#    A ~panel beállítások~@PanelSettings@ párbeszédablak.
+ #Panel beállítások#     A ~panel beállítások~@PanelSettings@ párbeszédablak.
 
- #Fastruktúra#          A ~fastruktúra beállítások~@TreeSettings@
- #beállítások#          párbeszédablakot jeleníti meg.
+ #Fastruktúra#           A ~fastruktúra beállítások~@TreeSettings@
+ #beállítások#           párbeszédablakot jeleníti meg.
 
- #Kezelőfelület#        A ~kezelőfelület beállítások~@InterfSettings@
- #beállítások#          párbeszédablakot jeleníti meg.
+ #Kezelőfelület#         A ~kezelőfelület beállítások~@InterfSettings@
+ #beállítások#           párbeszédablakot jeleníti meg.
 
- #Nyelvek#              A program és a súgó nyelve választható ki.
-                      ^<wrap>Használjuk a "Beállítások mentése" funkciót!
+ #Nyelvek#               A program és a súgó nyelve választható ki.
+                       ^<wrap>Használjuk a "Beállítások mentése" funkciót!
 
- #Plugin#               A ~pluginek~@Plugins@ működése állítható be, a pluginek
- #beállítások#          beállítási párbeszédablakaiban.
+ #Plugin#                A ~pluginek~@Plugins@ működése állítható be, a pluginek
+ #beállítások#           beállítási párbeszédablakaiban.
 
- #Plugin manager#       Shows ~Plugin manager settings~@PluginsManagerSettings@ dialog.
+ #Plugin manager#        Shows ~Plugin manager settings~@PluginsManagerSettings@ dialog.
  #settings#
 
- #Párbeszédablak#       A ~párbeszédablak beállítások~@DialogSettings@
- #beállítások#          párbeszédablakot jeleníti meg.
+ #Párbeszédablak#        A ~párbeszédablak beállítások~@DialogSettings@
+ #beállítások#           párbeszédablakot jeleníti meg.
 
- #Menu settings#        Shows ~Menu settings~@VMenuSettings@ dialog.
+ #Menu settings#         Shows ~Menu settings~@VMenuSettings@ dialog.
 
  #Command line settings# Shows ~Command line settings~@CmdlineSettings@ dialog.
 
@@ -1539,36 +1554,36 @@ $ #Menük: Beállítások menü#
 
  #Groups of file masks#  Shows ~Groups of file masks~@MaskGroupsSettings@ dialog.
 
- #Megerősítések#        ^<wrap>Egyes műveletek végrehajtására
+ #Megerősítések#         ^<wrap>Egyes műveletek végrehajtására
 ~megerősítés~@ConfirmDlg@ (rákérdezés) kapcsolható ki vagy be.
 
- #Fájlpanel módok#      ^<wrap>A ~fájlpanel nézet módok testreszabása~@PanelViewModes@ végezhető el a
+ #Fájlpanel módok#       ^<wrap>A ~fájlpanel nézet módok testreszabása~@PanelViewModes@ végezhető el a
 funkcióval.
 
- #Fájl megjegyzés-#     Megadható, hogy a ~fájlok megjegyzéseit~@FileDiz@
- #fájlok#               mely fájlokból olvassa ki a Far. Beállíthatók
-                      a megjelenítés és frissítés jellemzői is.
+ #Fájl megjegyzés-#      Megadható, hogy a ~fájlok megjegyzéseit~@FileDiz@
+ #fájlok#                mely fájlokból olvassa ki a Far. Beállíthatók
+                       a megjelenítés és frissítés jellemzői is.
 
- #Mappa megjegyzés-#    Megadható, hogy az ~info panel~@InfoPanel@ mely
- #fájlok#               fájlokat jelenítse meg mappa megjegyzésként
-                      (~joker~@FileMasks@ karakter is megengedett).
+ #Mappa megjegyzés-#     Megadható, hogy az ~info panel~@InfoPanel@ mely
+ #fájlok#                fájlokat jelenítse meg mappa megjegyzésként
+                       (~joker~@FileMasks@ karakter is megengedett).
 
- #Nézőke beállítások#   A külső és belső ~nézőke beállításai~@ViewerSettings@.
+ #Nézőke beállítások#    A külső és belső ~nézőke beállításai~@ViewerSettings@.
 
- #Szerkesztő#           A külső és belső ~szerkesztő beállításai~@EditorSettings@.
+ #Szerkesztő#            A külső és belső ~szerkesztő beállításai~@EditorSettings@.
  #beállítások#
 
- #Code pages#           Shows the ~Code pages~@CodePagesMenu@ menu.
+ #Code pages#            Shows the ~Code pages~@CodePagesMenu@ menu.
 
- #Színek#               ^<wrap>Kiválasztható minden egyes képernyőelem
+ #Színek#                ^<wrap>Kiválasztható minden egyes képernyőelem
 színe, a Far teljes palettája fekete-fehérre cserélhető vagy visszaállítható
 az eredeti színkombináció.
 
- #Fájlkiemelések,#      A ~fájlkiemelések, rendezési csoportok~@Highlight@
- #rendezési csoportok#  beállításai.
+ #Fájlkiemelések,#       A ~fájlkiemelések, rendezési csoportok~@Highlight@
+ #rendezési csoportok#   beállításai.
 
- #Beállítások#          Elmenti a jelenlegi beállításokat, színeket
- #mentése#              és a képernyő elrendezését.
+ #Beállítások#           Elmenti a jelenlegi beállításokat, színeket
+ #mentése#               és a képernyő elrendezését.
 
  See also: common ~menu~@MenuCmd@ keyboard commands.
 
@@ -1587,6 +1602,7 @@ kapcsolhatjuk ki vagy be:
  - ~hálózati meghajtók leválasztása~@DisconnectDrive@ a Meghajtók
 menüből;
  - virtuális (SUBST) meghajtók törlése a Meghajtók menüből;
+ - detach virtual disks from the Disks menu;
  - USB tárolóeszközök eltávolítása a Meghajtók menüből;
  - fájlok ~újratöltése~@EditorReload@ a szerkesztőbe;
  - a nézőke/szerkesztő, mappa és parancs előzménylisták törlése;
@@ -1640,7 +1656,7 @@ To ~highlight~@Highlight@ all archives except "*.rar" #<arc>|*.rar# should be us
 
 @ChoosePluginMenu
 $ #Plugin selection menu#
- Allows to choose the processing plugin if the host file (e. g. an archive)
+ Allows to choose the processing plugin if the host file (e.g. an archive)
 can be processed by multiple plugins.
 
  Also see common ~menu~@MenuCmd@ keyboard commands.
@@ -1663,7 +1679,7 @@ should contain a target directory path.
 készíthetünk. Ebben az esetben a mappák neveit "#;#" vagy "#,#" karakterrel kell
 elválasztani. Ha a fent említett opciót engedélyeztük és a mappa nevében van
 "#;#" (vagy "#,#") karakter, akkor a nevet idézőjelek közé kell tenni. Például
-a következő soron Entert ütve #C:\\Foo1;"E:\\foo,2;";D:\\foo3# 
+a következő soron Entert ütve #C:\\Foo1;"E:\\foo,2;";D:\\foo3#
 a #C:\\Foo1#, az #E:\\foo,2;# és a #D:\\foo3# nevű mappák jönnek létre.
 
 
@@ -1938,7 +1954,7 @@ mérete bármilyen értéket felvehet.
  #Dátum/Idő#
  A fájl dátumának/idejének tartománya. Választhatunk az utolsó #módosítás#, a #létrehozás#
 vagy a #hozzáférés# dátuma és időpontja közt.
- #Jelenlegi# gomb az aktuális dátummal és idővel 
+ #Jelenlegi# gomb az aktuális dátummal és idővel
 tölti fel a dátum/idő mezőt, ezután a mezők értékeit módosíthatjuk, például
 akár külön a hónap vagy a perc értékét is.
  Az #Üres# gomb törli a dátum- és időmezők tartalmát.
@@ -2063,6 +2079,7 @@ párbeszédablakban.
  1. ^<wrap>A lista frissítése (Ctrl+R) hosszú időt vehet igénybe, ha
 jelenleg nem elérhető távoli helyeket kell vizsgálnia.
  2. ^<wrap>A zárolt előzményelemek nem törlődnek az előzménylista módosulása vagy törlése esetén sem.
+
  See also: common ~menu~@MenuCmd@ keyboard commands.
 
 
@@ -2280,7 +2297,6 @@ végrehajtható parancsot lehet hozzárendelni:
 ~Rendszer beállítások~@SystemSettings@ menüben a #Windows regisztrált#
 #fájltípusainak használata# opció be van kapcsolva, a Far megpróbálja a
 Windowsban definiált társításokat alkalmazni.
-
  2. ^<wrap>Az operációs rendszer "IF EXIST" és "IF DEFINED"
 ~parancsaival~@OSCommands@ a társításoknak kifinomultabb feltételrendszert
 szabhatunk. Ha azonos fájltípushoz több különböző társítást adtunk meg, az
@@ -2324,6 +2340,8 @@ Ebben az esetben a parancssor formátuma: #!?$<előzmény>$<név>?<alapérték>!
  grep !?#$GrepHist$#Keresés:?! !?Maszk:?*.*!|far.exe -v -
 
  Leave the name empty to disable history.
+
+ The entered string can also be accessed later as #%<history># (or as #%UserVarN#, where N is the index of the corresponding input).
 
 A <név> és az <alapérték> beírásánál más különleges szimbólumot is használhatunk, zárójelek között. Példa:
 grep !?Maszk (!.!):?! |far.exe -v -)
@@ -2385,7 +2403,7 @@ használjuk a #!.\# metaszimbólumot.
     ^<wrap>Például, ha egy RAR-ral tömörített fájlt
 szeretnénk a fájllal azonos nevű mappába kibontani, a parancs:
 
-    winrar x "!.!" "!.\"
+    #winrar x "!.!" "!"\#
 
 
 @SystemSettings
@@ -2398,9 +2416,8 @@ A "Törlés a Lomtárba" művelet csak helyi merevlemezeken működik.
  A Far beépített másolórutinja helyett az operációs rendszer rutinját használja.
 Alkalmazása NTFS fájlrendszerben hasznos lehet, mert a CopyFileEx rendszerfunkció
 ésszerűbb lemezfoglalási módszert használ, azonkívül a fájlokat bővített attribútumkészletükkel együtt másolja
-át. Másrészt viszont az operációs rendszer metódusa meggátolja a fájlok
-feloszthatóságát, ha a ~másolás~@CopyFiles@ vagy mozgatás nem használható., same as
-the "smart" copying of sparse files.
+át. Másrészt viszont az operációs rendszer metódusa meggátolja
+the possibility of "smart" ~másolás~@CopyFiles@ vof sparse files is not available.
 
  #Írásra megnyitott fájlok másolhatók#
  Megengedi más programokban írásra megnyitott fájlok másolását. A módszer praktikus lehet a hosszú időre
@@ -2607,22 +2624,17 @@ nem elérhető).
  Redraw the window in such a way that ClearType related artifacts do not appear.
  #Attention!#: Enabling this option can considerably slow down the redraw speed.
 
- #Set console icon#
- If this option is activated Far will actively set the icon of the console window
-to its inbuilt icon. If the option is not activated it's possible to set the icon of
-the console window to any desired icon via the properties of the Far launching link
-in Windows.
+ #Console icon#
+ If this option is activated, Far will set the selected embedded icon as the icon of the console window.
+Otherwise you can choose any desired icon in the Far shourtcut properties.
 
  #Alternate for Administrator#
- If this option is activated and Far is executed by a user with administrator privileges,
-then the used icon will be red instead of blue. This option is only relevant if the
-option #Set console icon# is activated.
+ If this option is activated, Far will use the red icon when running with administrator privileges.
 
  #Far window title addons#
  Additional information, displayed in the window title.
 Can contain any text, including environment variables (e.g. "%USERDOMAIN%\%USERNAME%") and the following special variables:
  - #%Ver# - Far version;
- - #%Build# - Far build number;
  - #%Platform# - Far platform;
  - #%Admin# - ^<wrap>"Administrator" if running as administrator, otherwise an empty string.
  - #%PID# - Far process ID;
@@ -2692,7 +2704,8 @@ feature is disabled while a macro is being recorded or executed.
  This option specifies the target folder of ~CD ~~~@OSCommands@ command.
 If the string is empty, #CD ~~# will attempt to change the current path
 to real “~~” directory (and fail if this is impossible, e.g. because
-the directory does not exist).
+the directory does not exist). Default value is string “%FARHOME%” which
+denotes Far home directory.
 
 
 @AutoCompleteSettings
@@ -2742,7 +2755,7 @@ jeleníthet meg.
  $w - current working directory (without the path)
  $$ - $ karakter
  $+ - the depth of the folders stack
- $##nn - ^<wrap>max promt width, given in percents relative to the width of the window
+ $##nn - ^<wrap>max prompt width, given in percents relative to the width of the window
  $@@xx - ^<wrap>"Administrator", if Far Manager is running as administrator.
 xx is a placeholder for two characters that will surround the "Administrator" word.
 For example, #$@@{}$s$p$g# will be shown as "{Administrator} C:\>"
@@ -2804,25 +2817,30 @@ $ #Nézőke: vezérlőbillentyűk#
 
  The following keys work in all modes:
 
- #Fel#                ^<wrap>Egy sorral fel
- #Le#                 Egy sorral le
- #PgUp#               Egy oldallal fel
- #PgDn#               Egy oldallal le
- #Home, Ctrl+Home#    A fájl elejére ugrik
- #End, Ctrl+End#      A fájl végére ugrik
+ #Fel#                 ^<wrap>Egy sorral fel
+ #Le#                  Egy sorral le
+ #PgUp#                Egy oldallal fel
+ #PgDn#                Egy oldallal le
+ #Home, Ctrl+Home#     A fájl elejére ugrik
+ #End, Ctrl+End#       A fájl végére ugrik
 
  The following additional keys work in #text mode without line wrap#:
 
- #Bal#                ^<wrap>Egy karakterrel balra
- #Jobb#               Egy karakterrel jobbra
- #Ctrl+Bal#           20 karakterrel balra, hexa módban 1 hellyel balra
- #Ctrl+Jobb#          20 karakterrel jobbra, hexa módban 1 hellyel jobbra
- #Ctrl+Shift+Bal#     A sorok kezdő pozíciójára ugrik (ha a sortörés nincs bekapcsolva és a sorok túlnyúlnak a kép méretén)
- #Ctrl+Shift+Jobb#    A sorok végső pozíciójára ugrik (ha a sortörés nincs bekapcsolva és a sorok túlnyúlnak a kép méretén)
+ #Bal#               ^<wrap>Egy karakterrel balra
+ #Jobb#              Egy karakterrel jobbra
+ #Ctrl+Bal#          20 karakterrel balra, hexa módban 1 hellyel balra
+ #Ctrl+Jobb#         20 karakterrel jobbra, hexa módban 1 hellyel jobbra
+ #Ctrl+Shift+Bal#    A sorok kezdő pozíciójára ugrik (ha a sortörés nincs bekapcsolva és a sorok túlnyúlnak a kép méretén)
+ #Ctrl+Shift+Jobb#   A sorok végső pozíciójára ugrik (ha a sortörés nincs bekapcsolva és a sorok túlnyúlnak a kép méretén)
 
- In #hex# and #dump# ~view modes~@ViewerMode@, #Ctrl+Left# and
+ In the #hex# and #dump# ~view modes~@ViewerMode@, #Ctrl+Left# and
 #Ctrl+Right# keys shift the content within the window one byte at a time
 in the corresponding direction.
+
+ In the #hex# ~view mode~@ViewerMode@, #Alt+Left# and #Alt+Right# key
+combinations decrease or increase the number of bytes displayed on each
+row by one byte, respectively. #Ctrl+Alt+Left# and #Ctrl+Alt+Right# key
+combinations adjust the number of displayed bytes by 16 at a time.
 
  Viewer commands
 
@@ -3041,7 +3059,15 @@ first byte on a row becomes the last on the previous row. The
 #Ctrl+Left# key combination shifts all bytes to the right moving the
 last byte of a row to the first positions of the next row. Unlike
 in #dump# mode, the content is shifted by a byte, not by a character.
-The #Right# and #Left# keys are ignored.
+
+ The #Alt+Right# key combination increases the number of bytes displayed
+on each row by one byte. The #Ctrl+Alt+Right# key combination increases
+the number of bytes by 16 at a time. The #Alt+Left# key combination
+decreases the number of bytes displayed on each row by one byte. The
+#Ctrl+Alt+Left# key combination decreases the number of bytes by 16 at
+a time.
+
+ The #Right# and #Left# keys are ignored.
 
 
 @ViewerGotoPos
@@ -3199,7 +3225,7 @@ kódlapját kapja, de ez az opció a ~szerkesztő beállítások~@EditorSettings
  Megjegyzések:
 
  1. ^<wrap>Az #Alt+U#/#Alt+I# a sor behúzását állítja, ha nincs kijelölt blokk.
- 2. ^<wrap>Lenyomott #Alt#-tal a karaktereket decimális kódjukkal 
+ 2. ^<wrap>Lenyomott #Alt#-tal a karaktereket decimális kódjukkal
 írhatjuk be a numerikus billentyűzeten (0-65535).
  3. ^<wrap>Ha nincs kijelölt blokk, a #Ctrl+Ins#/#Ctrl+C# kijelöli
 a teljes aktuális sort és a vágólapra másolja.
@@ -3221,7 +3247,7 @@ $ #Editor: search/replace#
 
  #Regular expressions#
  Treat input as Perl regular expression (~search~@RegExp@ and ~replace~@RegExpRepl@).
-Each line is processed individually, so multi-line expressions and line-break characters will not be found.
+Each line is processed individually, so multi-line expressions and line break characters will not be found.
 
  ~Preserve style~@PreserveStyle@
  Preserve style (case and delimiters in program source code) of the replaced text.
@@ -3730,6 +3756,9 @@ HD DVD-RW, Blue-ray Disk-ROM, Blue-ray Disk-RW.
 on the #Show size# option.
  Key combination in #Change drive# menu: #Ctrl+9#.
 
+ #Detect virtual disks#
+ Detect virtual disks (VHD, VHDX). This could wake up sleeping hard drives.
+
 
 @DisconnectDrive
 $ #Hálózati meghajtó leválasztása#
@@ -3954,7 +3983,7 @@ elhelyezett könyvjelzőinket.
 a belső szerkesztőben.
 
  #Show white space#        Make while space characters (spaces, tabulations,
-                         line endings) visible.
+                         line breaks) visible.
 
  #Select found#            Found text is selected
 
@@ -4516,12 +4545,6 @@ lehetősége a plugin képességeitől függ.
 
  Ha a célfájl már létezik, felülírhatjuk, kihagyhatjuk vagy a
 forrásfájl tartalmát hozzáfűzhetjük a célfájl végéhez.
-
- Ha a másolás vagy mozgatás során a céllemez megtelik, felfüggeszthetjük
-a másolást vagy kicserélhetjük a lemezt és alkalmazhatjuk a "Felosztást".
-Utóbbi esetben a Far a másolt fájlt a céllemez méretére szeleteli fel. Ez az
-opció csak akkor jelenik meg, ha a ~Rendszer beállítások~@SystemSettings@ menüben a
-"Másoláshoz a rendszerrutin használata" opció ki van kapcsolva.
 
  A "Hozzáférési jogok" opció csak NTFS fájlrendszernél működik, vele a
 fájlok hozzáférési információit is átmásolhatjuk. A másolás és mozgatás
@@ -5134,7 +5157,7 @@ $ #Makrók: gyorsbillentyűk#
  - ^<wrap>bármelyik billentyűhöz;
  - ^<wrap>bármelyik, módosítóval (#Ctrl#, #Alt# vagy #Shift#) együtt lenyomott billentyűhöz;
  - ^<wrap>bármelyik két módosítóval együtt lenyomott billentyűhöz. A
-lehetséges módosítópárok:  #Ctrl+Shift+<bill.>#, #Ctrl+Alt+<bill.># és 
+lehetséges módosítópárok:  #Ctrl+Shift+<bill.>#, #Ctrl+Alt+<bill.># és
 #Alt+Shift+<bill.>#
 
  A következő kombinációk #nem használhatók# makróhoz: #Alt+Ins#, #Ctrl+<.>#,
@@ -5222,7 +5245,7 @@ billentyűkombinációt, az a korábbi beállításnak megfelelően működik ez
 $ #Makrók: beállítások#
  Ha a ~makrók~@KeyMacro@ egyéb tulajdonságait is szeretnénk módosítani,
 a felvétel leállítására a #Ctrl+<.># helyett használjuk a #Ctrl+Shift+<.>#
-kombinációt, így a rögzítést követően egy párbeszédablakban állíthatjuk be 
+kombinációt, így a rögzítést követően egy párbeszédablakban állíthatjuk be
 a kívánt jellemzőket:
 
  #Szekvencia:#
@@ -5577,8 +5600,8 @@ $ #far:config Help.ActivateURL#
  This numeric parameter controls whether Far will open (activate) URL
 links in help files:
 
- 0 - ^<wrap>URL links are not opened.
- 1 - URL links are opened.
+ 0 - ^<wrap>URL links are not opened;
+ 1 - URL links are opened;
  2 - URL links are opened after user’s confirmation.
 
  Default value: 1 (links are opened).
@@ -5588,13 +5611,13 @@ links in help files:
 
 @Confirmations.EscTwiceToInterrupt
 $ #far:config Confirmations.EscTwiceToInterrupt#
- This numeric parameter controls the behavior of #Esc# key in the
+ This Boolean parameter controls the behavior of #Esc# key in the
 confirmation dialog for canceling an operation.
 
- 0 - ^<wrap>#Esc# key closes the dialog and continues the operation.
- 1 - #Esc# key closes the dialog and cancels the operation.
+ False - ^<wrap>#Esc# key closes the dialog and continues the operation;
+ True  - #Esc# key closes the dialog and cancels the operation.
 
- Default value: 0 (close the dialog and continue operation).
+ Default value: False (close the dialog and continue operation).
 
  This parameter can be changed via ~far:config~@FarConfig@ only.
 
@@ -5669,7 +5692,7 @@ $ #far:config Panel.Layout.ScrollbarMenu#
  This Boolean parameter enables menu scrollbar when there are more menu
 items than can fit vertically.
 
- False - ^<wrap>Never show menu scrollbar.
+ False - ^<wrap>Never show menu scrollbar;
  True  - Show menu scrollbar if needed.
 
  Default value: True (show menu scrollbar if needed).
@@ -5683,7 +5706,7 @@ $ #far:config Panel.CtrlFRule#
 combination in the ~command line~@CmdLineCmd@.
 
  False - ^<wrap>The file name is inserted into the command line as it is
-recorded in the file system.
+recorded in the file system;
  True  - The file name is inserted as it appears on the file panel,
 possibly in lowercase or using the short name.
 
@@ -5697,8 +5720,8 @@ $ #far:config Panel.CtrlAltShiftRule#
  This numeric parameter controls the behavior of #Ctrl+Alt+Shift# key
 combination for temporary hiding file panels.
 
- 0 - ^<wrap>Hide panels only (like #Ctrl+O# key combination).
- 1 - Hide panels and command line.
+ 0 - ^<wrap>Hide panels only (like #Ctrl+O# key combination);
+ 1 - Hide panels and command line;
  2 - Hide panels, command line, and functional key bar at the bottom
 line.
 
@@ -5713,9 +5736,9 @@ $ #far:config Panel.RightClickRule#
 on an empty stripe of file panel.
 
  0 - ^<wrap>Move panel cursor to the last file in the previous stripe
-and select the file.
+and select the file;
  1 - Move panel cursor to the last file in the previous stripe without
-selecting the file (like the #left mouse click#).
+selecting the file (like the #left mouse click#);
  2 - Do not move panel cursor or select any file.
 
  Note: If the stripe is not empty the last file is always selected.
@@ -5727,817 +5750,1000 @@ selecting the file (like the #left mouse click#).
 
 @System.ExcludeCmdHistory
 $ #far:config System.ExcludeCmdHistory#
- Параметр позволяет определять, какие типы команд не будут помещаться в историю.
-Проверка идёт по битовой маске. Если бит установлен, данный тип команд в историю не помещается.
+ This numeric parameter suppresses saving commands of certain categories
+to the history. If a bit in the parameter’s value is set, commands
+of the corresponding category will not be saved.
 
- Номера битов:
+ Bit numbers and corresponding command categories:
+ 0 - ^<wrap>Windows file type associations;
+ 1 - Far ~file associations~@FileAssoc@;
+ 2 - Executable files under cursor on ~file panel~@FuncCmd@;
+ 3 - Commands entered on ~command line~@CmdLineCmd@.
 
- 0 - не помещать в историю команды ассоциаций Windows
- 1 - не помещать в историю команды ассоциаций Far
- 2 - не помещать в историю команды запуска с панели
- 3 - не помещать в историю команды запуска из командной строки
+ Default value: 0 (save commands of all categories).
 
- По умолчанию значение = 0 (помещать в историю все команды).
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.Executor.RestoreCP
 $ #far:config System.Executor.RestoreCP#
- Параметр позволяет управлять восстановлением кодовой страницы после запуска и отработки внешних
-программ в окне Far Manager.
+ This Boolean parameter controls whether Far will restore console code
+page after the execution of an external program has completed. Some
+programs change console code page during execution and do not restore
+it before exiting. Use this parameter to compensate for this behavior.
 
- Некоторые программы изменяют кодовую страницу консольного окна и после
-своей обработки не восстанавливают предыдущее значение. Может быть одним из следующих значений:
+ False - ^<wrap>Leave it as is; do not restore console code page;
+ True  - Restore console code page after an external program exited.
 
- 0 - "оставить всё как есть" (не восстанавливать значение)
- 1 - восстанавливать предыдущее значение кодовой страницы
+ Default value: True (restore console code page).
 
- По умолчанию значение = 1 (восстанавливать значение).
+ See also #CHCP# ~Operating system~@OSCommands@ command.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.Executor.UseAppPath
 $ #far:config System.Executor.UseAppPath#
- При запуске на исполнение содержимого командной строки Far ищет
-исполняемый модуль по  следующей логике (попеременно подставляя расширения, перечисленные в переменной окружения  %PATHEXT%):
+ This Boolean parameter controls whether Far will look up #App Paths#
+Windows registry key when it searches for an executable module.
 
- 1. Текущий каталог
- 2. Каталоги, которые перечислены в переменной окружения %PATH%
- 3. Windows 95: Системный каталог Windows (SYSTEM).
-    Windows NT: 32-битный системный каталог Windows (SYSTEM32)
- 4. Windows NT: 16-битный системный каталог Windows (SYSTEM)
- 5. Каталог Windows.
+ When Far executes a command entered on the command line, it searches
+executable module in the following places in this order (using file
+name extensions defined by the #PATHEXT# environment variable):
 
- Если параметр "System.Executor.UseAppPath" равен 1, то дополнительно производится поиск исполняемых модулей в реестре:
+ 1. ^<wrap>Current directory;
+ 2. Directories listed on the #PATH# environment variable;
+ 3. Windows 95: Windows system directory (SYSTEM);
+    Windows NT: 32-bit Windows system directory (SYSTEM32);
+ 4. Windows NT: 16-bit Windows system directory (SYSTEM);
+ 5. The Windows directory.
 
- 6. Содержимое ветки реестра:
-    [HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths]
- 7. Содержимое ветки реестра:
-    [HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths]
+ If this parameter is True, Far will also look up subkeys of the
+following Windows registry keys:
 
- Независимо от состояния этого параметра, модуль, прописанный в "App Paths", будет запущен проводником, если для запуска
-используется комбинация Shift+Enter.
+ 6. #HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths#;
+ 7. #HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths#.
 
- По умолчанию значение = 1 (проверять ветки реестра)
+ Default value: True (look up Windows registry).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Note: If the command line is executed with #Shift+Enter# key
+combination, Far launches Windows Explorer to execute the command.
+Windows Explorer always looks up #App Paths# registry key.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.Executor.ExcludeCmds
 $ #far:config System.Executor.ExcludeCmds#
- Параметр позволяет задавать набор команд которые будут сразу передаваться
-в %comspec% для выполнения, поиск в PATH и т.п. не будет произведён.
+ This string parameter defines commands which will be directly passed
+for execution to the operating system command processor (specified
+by the #ComSpec# environment variable), without searching the current
+directory, directories listed on the #PATH# environment variable,
+or any other predefined places.
 
- Разделитель команд - символ ‘;’. Например, если "System.Executor.ExcludeCmds" задан списком "DATE;ECHO",
-то при вводе 'date' будет исполнена внутренняя команда CMD.EXE/COMMAND.COM. Для исполнения внешней команды
-"date.exe" необходимо точно написать её название. В тоже время, если "date.exe" доступно в %PATH% и из списка
-"ExcludeCmds" убрать "DATE", то внутренняя команда ком.процессора никогда не будет исполнена.
+ The commands are separated by semicolon (#;#). Environment variables
+surrounded by the percent sign (#%#) will be substituted.
 
- Готовые настройки для CMD.EXE, COMMAND.COM и TCCLE.EXE (известный ранее как 4NT.EXE) находятся в каталоге Addons\\SetUp, файлы "Executor.???.farconfig".
+ For example, if the value of this parameter is “DATE;ECHO” and “date”
+is entered on the command line, the internal command processor’s #DATE#
+command will be executed. To execute an external program “date.exe”,
+type the file name verbatim, including extension. However, if “DATE”
+is not listed in this parameter and the program “date.exe” exists
+in one of the #PATH# directories, the internal command processor’s
+command can never be executed.
 
- Команды "CLS", "REM", "CD" и "CHDIR" Far обрабатывает самостоятельно. Эти команды не включены в "Executor.???.farconfig".
+ Ready-made settings for CMD.EXE, COMMAND.COM, and other well-known
+command processors can be found in the
+#Addons\SetUp\Executor.*.farconfig# files.
 
- Команды "IF", "CHCP" и "SET" Far обрабатывает с ограниченной функциональностью - если синтаксис
-отличается от приведённого в разделе "~Команды операционной системы~@OSCommands@", то команда
-передаётся на дальнейшую обработку ком.процессору.
+ Note: Far executes some ~operating system~@OSCommands@ commands
+internally, without invoking operating system command processor. These
+commands are not included in #Executor.*.farconfig# files. Some other
+OS commands Far executes with the limited functionality. If the syntax
+does not match exactly that specified in the
+~Operating system commands~@OSCommands@ help topic, the command will
+be passed for execution to the command processor.
 
- По умолчанию список "ExcludeCmds" пуст.
+ Default value: empty string #""#.
 
- В параметре можно использовать переменные среды.
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.Executor.ComspecArguments
 $ #far:config System.Executor.ComspecArguments#
+ This string parameter defines the arguments which Far will use to
+invoke the operating system command processor (specified by the
+#ComSpec# environment variable).
 
- Arguments for command processor. #{0}# is a placeholder for the entire executing command.
- If your processor uses different keys or quotes you can change them here.
+ The #{0}# placeholder will be replaced with the text of the command.
+This parameter is handy with non-standard command processors requiring
+unusual command line options or quoting.
 
- Default value: #/S /C "{0}"# (compatible with cmd.exe)
+ Default value: #/S /C "{0}"# (compatible with CMD.EXE).
 
  This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.Executor.FullTitle
 $ #far:config System.Executor.FullTitle#
- Параметр позволяет задавать вид заголовка консоли при запуске файла на исполнение.
+ This Boolean parameter specifies the format of the console window title
+while an external command is being executed.
 
- Может быть одним из следующих значений:
+ False - ^<wrap>Console title contains the text entered on the command line;
+ True  - Console title contains full path to the executable file.
 
- 0 - в заголовке консоли отображается то, что вводил пользователь.
- 1 - в заголовке консоли отображается полный путь к исполняемому файлу.
+ Default value: False (the entered text).
 
- По умолчанию значение = 0 (то, что вводил пользователь).
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Interface.FormatNumberSeparators
 $ #far:config Interface.FormatNumberSeparators#
- Параметр позволяет определять символы, используемые в качестве разделителей групп разрядов и целой/дробной части чисел.
- Первый символ - разделитель групп разрядов.
- Второй символ - разделитель целой и дробной части.
+ This string parameter allows to override digit grouping symbol and
+decimal symbol in OS regional settings.
 
- По умолчанию значение - "" (использовать региональные настройки ОС).
+ First symbol  - ^<wrap>digit grouping symbol;
+ Second symbol - decimal separator symbol.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: empty string #""# (use OS regional settings).
 
-
-@System.Executor.~
-$ #far:config System.Executor.~~#
- Параметр позволяет менять путь к домашней папке для команды "~CD ~~~@OSCommands@".
-
- По умолчанию значение = "%FARHOME%".
-
- См. также ~System.Executor.UseHomeDir~@System.Executor.UseHomeDir@
-
- Значение также можно поменять в диалоге ~Настройка командной строки~@CmdlineSettings@.
-
-
-@System.Executor.UseHomeDir
-$ #far:config System.Executor.UseHomeDir#
- Параметр позволяет включать или отключать переход к домашней папке командой "~CD ~~~@OSCommands@".
-
- По умолчанию значение = True.
-
- Значение также можно поменять в диалоге ~Настройка командной строки~@CmdlineSettings@.
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.CmdHistoryRule
 $ #far:config System.CmdHistoryRule#
- Параметр задаёт поведение выбора истории команд в командной строке, если после Ctrl+E/Ctrl+X нажали Esc:
+ This Boolean parameter defines whether the current position
+in ~commands history~@History@ will change if #Esc# is pressed after
+#Ctrl+E# or #Ctrl+X# key combinations.
 
- 0 - Изменять положение в History.
- 1 - Не изменять положение в History.
+ False - ^<wrap>The current command in the history will remain the one
+recalled with #Ctrl+E# / #Ctrl+X#.
+ True  - The current command in the history will be reset to the latest
+(newest) command.
 
- По умолчанию действует правило 0.
+ Note: The order of the commands in the history does not change in any
+case.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: False (change the current position in the commands
+history).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.ConsoleDetachKey
 $ #far:config System.ConsoleDetachKey#
- Параметр позволяет задавать сочетание клавиш для отделения консоли Far Manager от не интерактивного процесса, запущенного в ней.
+ This string parameter specifies key combination to detach Far console
+from a non-interactive process running in it.
 
- Если в консоли Far'а был запущен длительный процесс, например архивация, и по тем или иным причинам именно
-эта копия Far Manager нужна (редактор в фоне), или нежелательно запускать новый Far, то если у вас установлена
-эта опция, можно создать новую консоль для Far, где он продолжит  работу как если бы запущенный процесс уже
-завершился, а сам процесс продолжит работу в старой консоли.
+ If a long-running process is using Far console, press this key
+combination to create a new Far console where Far will continue running
+as if the process has already ended, while leaving the old console
+to the process.
 
- Например, значение "System.ConsoleDetachKey" равное "CtrlAltX" назначает процессу разделения сочетание клавиш Ctrl+Alt+X.
+ This feature can come handy if, for example, an archiver process
+started from the Far command line is taking more time than you
+expected, and you want to continue editing a file opened in background
+Editor, or simply do not want to launch a new Far instance.
 
- По умолчанию значение = "CtrlShiftTab"
+ Default value: #"CtrlShiftTab"# (the #Ctrl+Shift+Tab# key combination
+detaches Far console).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.QuotedSymbols
 $ #far:config System.QuotedSymbols#
- Параметр позволяет задавать набор символов, присутствие которых в именах файлов/папок заставит Far Manager заключать такие имена в кавычки.
+ This string parameter defines special characters that require quoting
+of file and folder names. If a name contains one of these characters,
+Far will surround it with double quotes when inserting into the command
+line or editor, or copying to the clipboard.
 
- По умолчанию значение = " &()[]{}^=;!'+,`" и символ с кодом 0xA0.
+ Default value: #" &()[]{}^=;!'+,` "#. The first symbol is
+~Space (U+0020)~@https://en.wikipedia.org/wiki/Space_(punctuation)@;
+the last symbol is ~Non-breaking space (U+00A0)~@https://en.wikipedia.org/wiki/Non-breaking_space@.
 
- See also ~System.QuotedName~@System.QuotedName@
+ See also ~System.QuotedName~@System.QuotedName@.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.QuotedName
 $ #far:config System.QuotedName#
- Имена файлов/папок (содержащие символы, перечисленные в правиле 34) при
-вставке в редактор/командную строку или в буфер обмена заключаются в кавычки.
+ This numeric parameter controls whether Far will surround with double
+quotes file and folder names containing special characters (see
+~System.QuotedSymbols~@System.QuotedSymbols@ parameter). Individual
+bits control the behavior in different contexts.
 
- Параметр "System.QuotedName" управляет этим поведением:
+ Bit numbers:
+ 0 - ^<wrap>Quote names when inserting into the command line or editor;
+ 1 - Quote names when copying to the clipboard.
 
- Биты:
- 0 - ^<wrap>если установлен, то заключать имена файлов/папок в кавычки при вставке в редактор или командную строку;
- 1 - ^<wrap>если установлен, то заключать имена файлов/папок в кавычки при запоминании в буфере обмена.
+ Default value: 1 (quote when inserting into the command line or editor).
 
- По умолчанию установлен нулевой бит.
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Interface.AltF9
 $ #far:config Interface.AltF9#
- Параметр позволяет выбрать механизм работы комбинации Alt+F9 (Изменение размера экрана) в оконном режиме:
+ This Boolean parameter controls the behavior of the #Alt+F9# key
+combination (toggle the size of the Far console window).
 
-  1 - ^<wrap>использовать усовершенствованный механизм - окно Far Manager
-будет переключаться с нормального на максимально доступный размер
-консольного окна и обратно. Размер шрифта консольного окна
-меняться не будет.
-  0 - ^<wrap>использовать механизм, совместимый с Far версии 1.65 и
-ниже, т.е. переключение 25/50 линий.
+ False - ^<wrap>Toggle Far window height between 25 and 50 lines; set
+window width to 80 columns;
+ True  - Maximize Far window or restore it to normal size.
 
- Данный параметр влияет только на оконный режим работы Far Manager.
+ Default value: True (maximize / restore).
 
- По умолчанию значение = 1
+ Note: This parameter affects the behavior only in windowed mode.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Dialog.CBoxMaxHeight
 $ #far:config Dialog.CBoxMaxHeight#
- Параметр задаёт максимальную высоту открываемого списка истории в диалогах.
+ This numeric parameter specifies the maximum height of history list
+in dialogs.
 
- По умолчанию значение = 8
+ Default value: 8.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.UndoDataSize
 $ #far:config Editor.UndoDataSize#
- Параметр позволяет ограничить количество памяти, используемой для операций отмены действий в редакторе.
+ This numeric parameter limits the size of undo memory buffer in Editor.
 
- По умолчанию значение = 104857600 (100MB).
+ Default value: 104857600 (100MB).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.CharCodeBase
 $ #far:config Editor.CharCodeBase#
- Параметр позволяет менять представление кода символа под курсором в статусной строке в редакторе.
+ This numeric parameter defines how the code of the character under the
+cursor is represented on Editor’s status line.
 
- Может принимать следующие значения:
+ 0 - Octal value (6 digits with the leading zero);
+ 1 - Decimal value (up to 5 digits);
+ 2 - Hexadecimal value (4 digits followed by the character ‘h’).
 
- 0 - восьмеричное значение (6 символов с ведущим нулём)
- 1 - десятеричное значение (5 символов)
- 2 - шестнадцатеричное значение (4 символа под цифру + символ ‘h’)
+ Default value: 1 (decimal).
 
- По умолчанию значение = 1 (десятеричное значение).
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.BSLikeDel
 $ #far:config Editor.BSLikeDel#
- Параметр позволяет управлять поведением клавиши BackSpace в редакторе, когда выделен вертикальный блок.
+ This Boolean parameter defines the behavior of the #BackSpace# key when
+a vertical block is selected in Editor.
 
- Если значение отлично от 0, то BS удаляет вертикальный блок подобно клавише Del.
+ False - ^<wrap>Deletes the character to the left of the cursor; keeps
+the (vertical) selection;
+ True  - Deletes the selected vertical block, like the #Del# key does.
 
- По умолчанию значение = 1 (BS удаляет помеченный вертикальный блок).
+ Default value: True (deletes the selection).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.AllowEmptySpaceAfterEof
 $ #far:config Editor.AllowEmptySpaceAfterEof#
- Окончание файла в редакторе всегда находится внизу экрана, если строк в файле больше чем строк экрана.
-При построчном скроллировании вниз (например, с помощью Ctrl+Down), скроллирование прекращается, когда
-показывается последняя строка.
+ This Boolean parameter defines whether scrolling down in Editor (e.g.,
+with the #Ctrl+Down# key combination) can leave empty space at the
+bottom of the window.
 
- Параметр "Editor.AllowEmptySpaceAfterEof" позволяет изменить такое поведение редактора.
+ False - ^<wrap>Stop scrolling when the last line of the file appears
+at the bottom of the window;
+ True  - Continue scrolling until the last line of the file reaches the
+cursor leaving empty space under the cursor.
 
- Может принимать следующие значения:
+ Default value: False (stop scrolling).
 
- 0 - прекратить скроллинг, если последняя строка внизу экрана
- 1 - продолжать скроллинг, при этом:
-     a) поместить курсор за пределы файла по прежнему нельзя
-     b) скроллинг с помощью Ctrl+Down сдвинет текст до курсора
-
- По умолчанию значение = 0 (прекратить скроллинг).
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Interface.RedrawTimeout
 $ #far:config Interface.RedrawTimeout#
- Параметр  "Interface.RedrawTimeout" позволяет контролировать время обновления (в мс)
-сообщения в процессе копирования файлов, применения прав доступа после перемещения файлов или папок,
-удаления и поиска файлов, сканирование файловой системы.
+ This numeric parameter specifies the refresh time (in milliseconds)
+of the progress dialog displayed during various long-running
+operations, such as copying, moving, deleting and searching files and
+folders, applying access rights after moving files and folders,
+scanning the file system.
 
- Чем больше значение "Interface.RedrawTimeout", тем реже выводится информацию о процессе и тем быстрее проходит этот самый процесс.
+ The larger the value, the less frequently the information about the
+operation is displayed, the faster the operation itself is performed.
 
- По умолчанию значение = 200 мс.
+ Default value: 200 ms.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @TitleFormat
 $ #far:config Interface.ViewerTitleFormat, Interface.EditorTitleFormat#
- Параметры "Interface.ViewerTitleFormat" и "Interface.EditorTitleFormat" позволяют задавать
-формат заголовка консольного окна для ~редактора~@Editor@ и ~программы просмотра~@Viewer@.
+ These string parameters define console window title for
+~Editor~@Editor@ and ~Viewer~@Viewer@.
 
- Допускаются шаблонные символы "%File" - имя файла, "%Lng" - строка из lng-файла ("edit" или "view")
+ Macro #%File# is expanded to the name of the file being edited
+or viewed.
 
- Кроме этого есть шаблон "Interface.TitleAddons", который добавляется в конец заголовка (задаётся в диалоге ~Настройка интерфейса~@InterfSettings@).
+ Macro #%Lng# is replaced with the word “edit” or “view” in the current
+language, see ~Options menu~@OptMenu@.
 
- По умолчанию заголовок содержит слово "редактор" (в зависимости от языка интерфейса) и "имя файла" (шаблон "%Lng %File").
+ The #Far window title addons# string of the
+~Interface settings~@InterfSettings@ will be automatically appended
+to the console window title.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: #"%Lng %File"#.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.WipeSymbol
 $ #far:config System.WipeSymbol#
- Параметр позволяет задать код символа-заполнителя для операции "~Уничтожить файл~@DeleteFile@" (Alt+Del).
-Использует младший байт параметра.
- If parameter is set to -1, random values will be used.
+ This numeric parameter defines the filler byte for the
+~wipe file~@DeleteFile@ operation (#Alt+Del# key combination).
 
- По умолчанию значение = 0.
+ Each byte of the file is overwritten with the least significant byte
+of the parameter. If the parameter is set to #-1#, random values will
+be used.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: 0.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.FlagPosixSemantics
 $ #far:config System.FlagPosixSemantics#
- Параметр "System.FlagPosixSemantics" задаёт поведение для процесса добавления отредактированного или просмотренного файла в историю.
-Если значение параметра равно true, то при поиске дублей учитывается регистр символов в именах файлов.
+ This Boolean parameter specifies whether inserting files into
+~view and edit history~@HistoryViews@ is case sensitive.
 
- По умолчанию значение = true.
+ If a file being added already exists in the history, it is not inserted
+again; instead, the existing history entry is moved to the most recent
+position.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ False - ^<wrap>Case insensitive comparison is used to search the
+history for duplicates.
+ True  - Case sensitive comparison is used to search the history for
+duplicates.
+
+ Default value: True (the search is case sensitive).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.ShowCheckingFile
 $ #far:config System.ShowCheckingFile#
- Параметр "System.ShowCheckingFile" позволяет отображать в заголовке окна Far Manager имя плагина,
-претендующего на файл, который хотим запустить или отобразить в качестве файловой панели.
+ This Boolean parameter controls whether plugin’s name is displayed
+in the console window title while the plugin is checking a file.
 
- По умолчанию значение = false - не отображать информацию.
+ When the user presses #Enter# or #Ctrl+PgDn#, Far invokes registered
+plugins one by one to check if they can “open” or otherwise render the
+file. If this parameter is True, Far will show plugin’s name in the
+console window title while the plugin is checking the file.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: False (do not show plugins’ names).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.PluginMaxReadData
 $ #far:config System.PluginMaxReadData#
- Параметр "System.PluginMaxReadData" позволяет задавать максимальный размер читаемых данных из
-файла в который попытались войти из панелей (Enter или Ctrl+PgDn). Считанные данные будут переданы
-плагинам для определения плагина поддерживающего файл этого типа.
+ This numeric parameter defines the maximum amount of file data used
+to find the plugin which supports the file.
 
- Минимальное значение - 0x1000. Максимальное - 0xFFFFFFFF.
+ When the user presses #Enter# or #Ctrl+PgDn#, Far reads the number
+of bytes specified by this parameter from the beginning of the file and
+passes the data to registered plugins to check if they can “open”
+or otherwise render the file.
 
- Не рекомендуется выставлять значение этого параметра больше 5 Mb.
+ Minimum value is 131072 (128 KiB). The maximum is limited only by the
+size of the logical address space (2^32 - 1 or 2^64 – 1).
 
- По умолчанию значение = 0x20000.
+ Setting the value of this parameter above 5 MiB is not recommended.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: 131072 (0x20000).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.SetAttrFolderRules
 $ #far:config System.SetAttrFolderRules#
- Параметр "System.SetAttrFolderRules" позволяет задавать значение по умолчанию опции "Process subfolders"
-в диалоге установки атрибутов для одиночной папки:
+ This Boolean parameter defines the default value of the
+#Process subfolders# option of the file ~Attributes~@FileAttrDlg@ dialog
+when changing attributes of a single directory.
 
- true  - ^<wrap>опция "Process subfolders" выключена, файловые дата и время установлены.
- false - ^<wrap>опция "Process subfolders" включена, файловые дата и время очищены.
+ False - ^<wrap>The #Process subfolders# option is on; date and time
+fields are cleared.
+ True  - The #Process subfolders# option is off; date and time fields
+are set to the actual values.
 
- По умолчанию значение = true.
+ Default value: True (do not process subfolders).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.CopyBufferSize
 $ #far:config System.CopyBufferSize#
- Параметр "System.CopyBufferSize" задаёт размер буфера, когда не используется
-~системная функция копирования~@SystemSettings@. Если параметр равен 0, то используется
-размер по умолчанию - 32768 байт.
+ This numeric parameter defines the size of the buffer used by the
+internal file copy routine (see #Use system copy routine# option of the
+~System settings~@SystemSettings@ dialog).
 
- По умолчанию значение равно 0.
+ If the value of this parameter is zero, the default buffer size
+of 32768 bytes is used.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: 0 (buffer size is 32768 bytes).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.SubstNameRule
 $ #far:config System.SubstNameRule#
- Параметр "System.SubstNameRule" задаёт правило опроса приводов на предмет сканирования SUBST-дисков.
+ This numeric parameter specifies the types of physical drives which
+will be queried when Far detects drives assigned using #SUBST# command.
 
- Биты:
- 0 - если установлен, то опрашивать сменные диски
- 1 - если установлен, то опрашивать все остальные
+ Far attempts to detect if a drive was substituted to display
+appropriate information on the ~Change drive~@DriveDlg@ menu and
+~Info panel~@InfoPanel@, as well as in some other cases.
 
- По умолчанию значение = 2 - опрашивать все диски кроме сменных.
+ Bit numbers:
+ 0 - Query removable drives;
+ 1 - Query drives of all other types.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: 2 (query all non-removable drives). For example,
+if a drive is associated with a CD-ROM path, it will not be detected
+as substituted.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.SubstPluginPrefix
 $ #far:config System.SubstPluginPrefix#
- Параметр "System.SubstPluginPrefix" позволяет управлять подстановкой префиксов плагинов в операциях
-вставки пути к объекту (Ctrl+F, Ctrl+[…), находящемуся на панели плагина. Если значение равно #true#, то
-Far Manager автоматически добавит в командную строку префикс плагина перед вставляемым путём (кроме панелей,
-которые указывают на реальные файлы, например, "Временная панель"). Значение #false# не добавляет префиксы.
+ This Boolean parameter controls whether Far prepends plugin prefix
+to the path to plugin panel’s object when inserting the path into the
+command line (#Ctrl+F#, #Ctrl+[#, etc.) or copying it to the clipboard
+(#Alt+Shift+Ins#, #Ctrl+Alt+Ins#).
 
- По умолчанию значение = false.
+ False - ^<wrap>Do not prepend plugin prefix to the path to an object
+on plugin panel.
+ True  - Prepend plugin prefix except when the plugin manages real
+files, like #Temporary panel# does.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: False (do not prepend plugin prefix).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.CopySecurityOptions
 $ #far:config System.CopySecurityOptions#
- Параметр "System.CopySecurityOptions" позволяет управлять поведением опции "Права доступа" в диалоге копирования/перемещения.
+ This numeric parameter controls the initial state of the
+#Access rights# option in the ~Copy / Move~@CopyFiles@ dialog.
 
- Номера битов:
- 0 и 1 - ^<wrap>Диалог Move: по умолчанию выставлять опцию копирования (бит 0 выставлен в 1,
-бит 1 сброшен в 0) или наследования (биты 0 и 1 выставлены в 1) прав доступа;
- 2     - ^<wrap>Диалог Move: запоминать состояние опции до конца сеанса работы Far Manager;
- 3 и 4 - ^<wrap>Диалог Copy: по умолчанию выставлять опцию копирования (бит 3 выставлен в 1, бит 4
-сброшен в 0) или наследования (биты 3 и 4 выставлены в 1) прав доступа;
- 5     - ^<wrap>Диалог Copy: запоминать состояние опции до конца сеанса работы Far Manager.
+ The #Access rights# option specifies the access rights assigned
+to newly created files and folders and can be one of:
 
- Воздействие битов 0 и 1 зависит от состояния бита 2:
- 1. ^<wrap>Если бит 2 выставлен в 1, то опция "Права доступа" будет установлена в зависимости от
-битов 0 и 1 только при первом вызове диалога перемещения после запуска Far Manager. Если вы
-переключите эту опцию в диалоге вручную, то при следующем вызове диалог предложит значение
-опции, выбранное вами в прошлый раз. Значение этой опции запоминается только до конца сеанса
-работы Far Manager. При следующем запуске Far опция снова будет установлена в зависимости от битов 0 и 1.
- 2. ^<wrap>Если бит 2 сброшен в 0, то опция "Права доступа" будет установлена в зависимости от
-битов 0 и 1 всякий раз при вызове диалога перемещения. Вы можете переключать эту опцию в диалоге
-вручную, но выбранное вами значение будет действовать только на текущую операцию переноса файлов.
+ #Default# - ^<wrap>Access rights are controlled by the operating system;
+ #Copy#    - Copy access rights of the source objects;
+ #Inherit# - Inherit access rights of the parent folder.
 
- Аналогично, для операции копирования воздействие битов 3 и 4 зависит от состояния бита 5.
+ The initial state of the #Access rights# option when the dialog
+is opened is controlled by three bits of the
+#System.CopySecurityOptions# parameter. Bits 0, 1, and 2 control the
+state of the option in the Move dialog; bits 3, 4, and 5 -- in the Copy
+dialog.
 
- Примеры:
- 0x21 - ^<wrap>для операции перемещения опцию "Права доступа" выставлять всегда в "Копировать",
-для операции копирования выставлять опцию в значение по умолчанию и запоминать её значение до конца сеанса работы Far Manager.
- 0xС0 - ^<wrap>для перемещения запоминать значение опции до конца сеанса работы Far (при первом вызове диалога опция
-выставлена в значение по умолчанию), для операции копирования опцию "Права доступа" выставлять всегда в "Копировать".
+@=
+ Copy     Move     ^<wrap>Initial state of the #Access rights#
+ Dialog   Dialog   option when the dialog is opened
+@=
+ Bit 0    Bit 3    0 - ^<wrap>#Default# (bits 1 / 4 are ignored)
+                   1 - controlled by bits 1 / 4
 
- По умолчанию значение параметра = 0 (опция "Права доступа" устанавливается в значение по
-умолчанию и до конца сеанса работы не запоминается).
+ Bit 1    Bit 4    0 - ^<wrap>#Copy# (if bit 0 / 3 is set to 1)
+                   1 - #Inherit# (if bit 0 / 3 is set to 1)
 
- Примечание:
+ Bit 2    Bit 5    0 - ^<wrap>Defined by bits 0 and 1 / 3 and 4 of this parameter
+                   1 - The last user’s choice (within the current Far session)
 
- Параметр "System.CopySecurityOptions" не влияет на создание ссылок (Alt+F6). В этом случае
-права всегда копируются.
+ Default value: 0 (when the dialog is opened, the #Access rights# option
+is always set to #Default#; user’s choices are not remembered).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Examples:
+
+ #0x21# (binary 100'001)
+
+ - ^<wrap>In the Move dialog, the #Access rights# option is always set
+to #Copy#.
+ - In the Copy dialog, the option is initially set to #Default#; then
+the previous user’s choice is remembered (within the current Far
+session).
+
+ #0x1C# (binary 011'100)
+
+ - ^<wrap>In the Move dialog, the #Access rights# option is initially
+set to #Default#; then the previous user’s choice is remembered (within
+the current Far session).
+ - In the Copy dialog, the option is always set to #Inherit#.
+
+ Note: The #System.CopySecurityOptions# parameter does not affect
+creation of links (#Alt+F6#). In this case access rights are always
+copied.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Interface.CursorSize
 $ #far:config Interface.CursorSizeX#
- Параметры "Interface.CursorSize1" и "Interface.CursorSize2" позволяют задавать размер курсора в оконном и полноэкранном режимах Far Manager для режима вставки.
+ These numeric parameters control cursor size in Far console window.
+Cursor size can be set separately for insert and override mode, as well
+as for windowed and fullscreen mode.
 
- Параметры "Interface.CursorSize3" и "Interface.CursorSize4" позволяют задавать размер курсора в оконном и полноэкранном режимах Far Manager для режима замены.
+@-
+ ┌──────────╥───────────────────────┬───────────────────────┐
+ │ Mode     ║ Windowed              │ Fullscreen            │
+ ╞══════════╬═══════════════════════╪═══════════════════════╡
+ │ Insert   ║ Interface.CursorSize1 │ Interface.CursorSize2 │
+ ├──────────╫───────────────────────┼───────────────────────┤
+ │ Override ║ Interface.CursorSize3 │ Interface.CursorSize4 │
+ └──────────╨───────────────────────┴───────────────────────┘
+@+
 
- Значения параметров: число между 1 и 100 - процент символьной ячейки, который заполняется курсором.
-Курсор изменяется от полностью заполненной ячейки до горизонтальной строки внизу ячейки.
+ The parameters specify the fraction of the character cell in percents
+filled by the cursor. Parameters’ values may vary from 1 to 100
+corresponding to the cursor changing from the single horizontal line
+at the bottom of the cell to the solid block filling the entire cell.
+If parameter’s value is zero, the system console setting is used.
 
- Значения параметров равные нулю позволяют использовать системные настройки консоли.
+ Default values:
+ Interface.CursorSize1: 15
+ Interface.CursorSize2: 10
+ Interface.CursorSize3: 99
+ Interface.CursorSize4: 99
 
- По умолчанию:
- Interface.CursorSize1 = 15
- Interface.CursorSize2 = 10
- Interface.CursorSize3 = 99
- Interface.CursorSize4 = 99
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.WordDiv
 $ #far:config System.WordDiv#
- Параметр "System.WordDiv" позволяет задавать дополнительные (кроме пробела и табуляции) cимволы-разделители слов.
+ This string parameter defines additional word delimiters besides
+#Space# and #Tab#.
 
- По умолчанию: #~~!%^&*()+|{}:"<>?`-=\\[];',./#
+ Default value: #~~!%^&*()+|{}:"<>?`-=\\[];',./#
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @XLat.WordDivForXlat
 $ #far:config XLat.WordDivForXlat#
- Параметр "XLat.WordDivForXlat" позволяет задавать используемые в функции транслитерации (XLat,
-для преобразования текущего слова без выделения) символы-разделители слов.
+ This string parameter defines word delimiters for transliteration
+(#XLat# function) of the current word without selecting it.
 
- По умолчанию: пробел табуляция и символы #!##$%^&*()+|=\\/@?#
+ Default value: #Space#, #Tab# and characters #!##$%^&*()+|=\\/@?#.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.ReadOnlyLock
 $ #far:config Editor.ReadOnlyLock#
- Параметр "Editor.ReadOnlyLock" задаёт поведение редактора при открытии файлов с атрибутами ReadOnly, Hidden и System.
+ This numeric parameter controls the behavior of the Editor when opening
+files with #Read-only#, #Hidden# or #System# attributes.
 
- Биты:
- 0 - Блокировать редактирование файла с атрибутом R/O
- 1 - Предупреждать при открытии файла с атрибутом R/O
- 2 - не используется
- 3 - не используется
- 4 - не используется
- 5 - применять дополнительно для файлов с атрибутом Hidden
- 6 - применять дополнительно для файлов с атрибутом System
+ Bit numbers:
+ 0 - ^<wrap>Lock down editing of read-only files;
+ 1 - Warn when opening read-only files;
+ 2 - Unused;
+ 3 - Unused;
+ 4 - Unused;
+ 5 - Also, apply the behavior defined by bits 0 and 1 to hidden files;
+ 6 - Also, apply the behavior defined by bits 0 and 1 to system files.
 
- Значения в битах 0 и 1 соответствуют опциям в диалоге ~настроек редактора~@EditorSettings@  ("Блокировать
-редактирование файла с атрибутом R/O" и "Предупреждать при открытии файла с атрибутом R/O").
+ Default value: 0 (allow editing of any files without warnings).
 
- Например, значение 0x43 - предупреждать и блокировать изменения в файлах с атрибутами ReadOnly и System.
+ For example, if this parameter is set to #0x43# (binary 0100'0011),
+warning will be shown when opening read-only and system files; editing
+of such files will be disabled.
 
- По умолчанию значение = 0.
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@. Bits 0 and
+1 are also controlled by the options #Lock editing of read-only files#
+and #Warn when opening read-only files# of the ~Editor~@EditorSettings@
+settings dialog.
 
 
 @Editor.FileSizeLimit
 $ #far:config Editor.FileSizeLimit#
- Параметр "Editor.FileSizeLimit" задаёт максимальный размер редактируемого файла в байтах.
-Если размер редактируемого файла превышает максимально допустимый, то будет показано предупреждающее сообщение перед
-открытием такого файла.
+ This numeric parameter defines file size limit; when exceeded,
+a warning message will be shown before opening the file in Editor.
 
- По умолчанию значение = 0 (отключает проверку и вывод сообщения)
+ If the value of this parameter is zero, the warning is disabled. The
+limit is defined in bytes.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Default value: 0 (file size is not checked, and the warning is never
+displayed).
+
+ Note: When a file is opened in Editor, its entire content is loaded
+into memory. Thus, opening very large files could be undesirable. The
+warning enabled by this parameter helps to avoid opening of large files
+inadvertently.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.MsWheelDelta
 $ #far:config System.MsWheelDelta* & System.MsHWheelDelta*#
- Параметры "System.MsWheelDelta*" и "System.MsHWheelDelta*" позволяют менять смещения для
-прокрутки колесом мыши по вертикали и горизонтали.
+ These numeric parameters define scroll speed when mouse wheel is rolled
+or tilted. Scroll speed can be specified separately for different
+directions and different areas.
 
- Параметры для вертикальной прокрутки:
+ Roll the wheel one notch to scroll the specified number of lines at
+a time vertically:
 
- System.MsWheelDeltaView  - в программе просмотра
- System.MsWheelDeltaEdit  - во встроенном редакторе
- System.MsWheelDeltaHelp  - в системе помощи
- System.MsWheelDelta      - в прочих областях
+ System.MsWheelDeltaView  - ^<wrap>in the internal Viewer
+ System.MsWheelDeltaEdit  - in the internal Editor
+ System.MsWheelDeltaHelp  - on help pages
+ System.MsWheelDelta      - in other areas
 
- Параметры для горизонтальной прокрутки (Windows Vista и выше):
+ Tilt the wheel to scroll the specified number of characters at a time
+horizontally (Windows Vista and above):
 
- System.MsHWheelDeltaView - в программе просмотра
- System.MsHWheelDeltaEdit - во встроенном редакторе
- System.MsHWheelDeltaHelp - в системе помощи
- System.MsHWheelDelta     - в прочих областях
+ System.MsHWheelDeltaView - ^<wrap>in the internal Viewer
+ System.MsHWheelDeltaEdit - in the internal Editor
+ System.MsHWheelDelta     - in other areas
 
- По умолчанию значение = 1
+ Default value: 1 (for all parameters).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Note: Rolling or tilting mouse wheel while holding #Alt# key always
+scrolls one line or character at a time.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @System.CopyTimeRule
 $ #far:config System.CopyTimeRule#
- Параметр "System.CopyTimeRule" задаёт режим отображения вывода информации
-о средней скорости копирования, времени копирования и примерном времени до конца операции в диалоге копирования.
+ This numeric parameter specifies whether the progress (speed, time, and
+estimated remaining time) is displayed during file copy operations.
 
- Номера битов:
- 0 - ^<wrap>если установлен, то показывать при копировании в NUL.
- 1 - ^<wrap>если установлен, то показывать при обычных операциях копирования.
+ Bit numbers:
+ 0 - ^<wrap>If set, show progress while copying to NUL;
+ 1 - If set, show progress during regular file copy operations.
 
- Так как эта функция требует времени для сбора статистики, то на небольших файлах при выключенном
-"общем индикаторе копирования" Вы можете ничего не увидеть.
+ Default value: 3 (always display progress of file copy operations).
 
- Параметр доступен в ~Настройках интерфейса~@InterfSettings@, но в диалоге можно выставить только два значения
-- показывать информацию везде или отключить режим отображения.
+ Note: Since this feature requires some time to gather statistics, it is
+likely that no progress is displayed for small files if the option
+#Show total copy progress indicator# is turned off in the
+~Interface settings~@InterfSettings@ dialog.
 
- Примеры:
- 1 - ^<wrap>показывать информацию только при копировании в NUL.
- 2 - ^<wrap>показывать информацию при обычных операциях копирования.
- 3 - ^<wrap>всегда показывать информацию о времени и скорости.
-
- По умолчанию значение = 3 (всегда показывать информацию о времени и скорости)
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@ или в ~Настройках интерфейса~@InterfSettings@
+ This parameter can be changed via ~far:config~@FarConfig@ or by the
+#Show copying time information# option of the
+~Interface settings~@InterfSettings@ dialog. However, only values 0 or
+3 can be set using this option.
 
 
 @Policies.ShowHiddenDrives
 $ #far:config Policies.ShowHiddenDrives#
- Параметр "Policies.ShowHiddenDrives" позволяет позволяет наследовать свойства Windows
-по сокрытию логических дисков из системы ("Hide  Drives in My Computer").
+ This Boolean parameter specifies whether Far honors the
+#Hide these specified drives in My Computer# Windows Group Policy.
 
- Значение:
+ False - ^<wrap>Far shows only drives visible (not hidden) in Windows
+Explorer;
+ True  - Far shows all drives (ignores the Group Policy).
 
- false - ^<wrap>Far показывает только доступные диски (учитывается значение параметра
-"NoDrives" системной политики - [HKLM или HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer]).
-Если "NoDrives" из HKLM=0 (не показывать скрытые диски для всех пользователей),
-то значение этого параметра из HKCU не имеет никакого эффекта.
+ Default value: True (show all drives).
 
- true  - ^<wrap>функция отключена, Far показывает все диски, независимо от
-значения параметра "NoDrives" в реестре.
+ Note: The state of this Group Policy is stored in the #NoDrives# value
+of the
+#\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer# key in
+both #HKLM# and #HKCU# hives of Windows Registry. If the NoDrives value
+in HKLM hive is zero (no hidden files on Local Machine), the value
+in HKCU hive is ignored.
 
- По умолчанию значение = true
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.KeepEditorEOL
 $ #far:config Editor.KeepEditorEOL#
- Параметр "Editor.KeepEditorEOL" позволяет управлять типом перевода строк для текста
-вставляемого в редактор из буфера обмена.
+ This Boolean parameter controls how line breaks within the text on the
+clipboard are pasted into the edited file.
 
- false - ^<wrap>текст вставляется без изменений, т.е. берётся тип перевода строк источника (при этом можно получить текст
-с разными типами перевода строк).
+ False - ^<wrap>Line breaks in the pasted text are preserved. After the
+paste operation, line breaks in the edited file may have different styles.
+ True  - If the file is not empty, line breaks in the pasted text are
+changed to match the line break style of the edited file. If the file
+is empty, line breaks are not changed; this parameter has no effect.
 
- true  - ^<wrap>если файл не пуст, сохраняется текущий тип перевода строк редактируемого файла,
-в противном случае параметр ни на что не влияет, т.е. будет использован стиль переводов строк оригинала.
+ Default value: True (match line break style of the edited file).
 
- По умолчанию значение = true
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.AddUnicodeBOM
 $ #far:config Editor.AddUnicodeBOM#
- Параметр "Editor.AddUnicodeBOM" указывает надо ли добавлять BOM (Byte Order Mark) в начало создаваемых
-редактором файлов в юникодной кодировке (1200, 1201, 65001).
+ This Boolean parameter specifies whether Byte Order Mark (BOM) is added
+at the beginning of the files created by the Editor and saved in
+a UNICODE encoding (UTF-8, UTF-16LE, UTF-16BE).
 
- false - ^<wrap>BOM не добавляется.
+ False - ^<wrap>BOM is not added.
+ True  - BOM is added.
 
- true  - ^<wrap>BOM добавляется.
+ Default value: True (BOM is added).
 
- По умолчанию значение = true
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.NewFileUnixEOL
 $ #far:config Editor.NewFileUnixEOL#
- Параметр "Editor.NewFileUnixEOL" позволяет задавать умолчательные символы конца строки в редакторе
-для вновь создаваемых файлов.
+ This Boolean parameter specifies line break style in the files created
+by the Editor.
 
- false - ^<wrap>Во вновь создаваемых файлах строки заканчиваются символами #<CR><LF># - (как в Windows).
+ False - ^<wrap>Files are created with Windows line break style (CR LF).
+ True  - Files are created with Unix line break style (LF).
 
- true  - ^<wrap>Во вновь создаваемых файлах строки заканчиваются символом #<LF># - (как в Unix).
+ Default value: False (Windows line break style).
 
- По умолчанию значение = false
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Panel.ShortcutAlwaysChdir
 $ #far:config Panel.ShortcutAlwaysChdir#
- Параметр "Panel.ShortcutAlwaysChdir" управляет поведением при нажатии клавиш перехода на папку
-#RCtrl+0…9#, когда панели невидимы.
+ This Boolean parameter controls the behavior of
+~folder shortcuts~@FolderShortcuts@ (#RightCtrl+0…9# key combinations)
+when the panels are hidden.
 
- false - ^<wrap>нажатия передаются редактору командной строки, что приводит к появлению имени папки,
-связанной с нажатой клавишей, в командной строке.
+ False - ^<wrap>Folder shortcuts insert the associated path into the
+command line.
+ True  - Folder shortcuts change the current folder even if the panels
+are hidden.
 
- true  - ^<wrap>всегда осуществляется переход на папку, связанную с нажатой клавишей (если задана),
-даже если панели невидимы.
+ Default value: False (inset the shortcut path).
 
- По умолчанию значение = false
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Macros.ShowPlayIndicator
 $ #far:config Macros.ShowPlayIndicator#
- Параметр "Macros.ShowPlayIndicator" позволяет включать или отключать отображение в левом верхнем углу экрана символа '\2FP\-'
-во время воспроизведения макропоследовательности.
+ This Boolean parameter turns macro playback indicator (symbol ‘\2FP\-’
+at the top left-hand corner of the screen) on or off.
 
- false - ^<wrap>Символ не отображается
+ False - ^<wrap>The indicator is turned off.
+ True  - The indicator is turned on.
 
- true  - ^<wrap>Символ отображается
+ Default value: True (the indicator is on).
 
- По умолчанию значение = true
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Viewer.SearchWrapStop
 $ #far:config Viewer.SearchWrapStop#
- Параметр "Viewer.SearchWrapStop" позволяет изменять поведение при прохождении через начало/конец
-файла при поиске в просмотрщике.
+ This tri-state parameter controls the behavior of the “continue search”
+key combinations in the Viewer (#Shift+F7#, #Space#, #Alt+F7#) when
+search wraps around the beginning or end of the file or passes the
+search starting point.
 
- false - ^<wrap>Тихий переход через начало/конец файла
+ False - ^<wrap>Silently wrap around the beginning or end of the file
+or the search starting point.
+ True  - Show message when wrapping around the beginning or end of the file.
+ Other - Show message when passing the search starting point.
 
- true  - ^<wrap>Показывается сообщение о переходе через начало/конец файла
+ Default value: True (silently wrap around).
 
- other - ^<wrap>Сообщение выводится при переходе через точку начала поиска (пройден весь файл)
-
- По умолчанию значение = True
-
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @XLat.Layouts
 $ #far:config XLat.Layouts#
- Параметр "XLat.Layouts" позволяет задавать номера раскладок клавиатуры (через ‘;’), которые будут переключаться,
-независимо от количества установленных в системе раскладок.
+ This string parameter defines the input locales (keyboard layouts)
+which Far will cycle through. If this parameter is specified, system
+input locales will be ignored.
 
- Например, "04090409;04190419" (или "0409;0419").
+ This parameter contains semicolon (#;#) separated list of hexadecimal
+input locale identifiers. For example, value #0409;0419# (or
+#04090409;04190419#) can be used to switch between input locales
+“en-US” and “ru-RU”.
 
- Если указано меньше двух, то механизм "отключается" и раскладки переключаются по кругу.
+ If less than two input locale identifiers are specified, Far will use
+input locales installed in the system.
 
- Far для "Layouts" считывает первые 10 значений, остальные, если есть, игнорируются.
+ Only first 10 locales are used, the rest of the list is ignored.
 
- По умолчанию значение отсутствует.
+ Default value: empty string (use system input locales).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ See also Addons\XLat\Russian\Qwerty.farconfig.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @XLat.Flags
 $ #far:config XLat.Flags#
- Параметр "XLat.Flags" определяет поведение функции Xlat:
+ This numeric parameter controls the behavior of Far API function XLat
+(string transcoding based on keyboard layout).
 
- Биты:
- 0  - ^<wrap>Автоматическое переключение раскладки клавиатуры после перекодирования
-      ^<wrap>Переключение происходит по кругу: RU->EN->RU->…
-      ^<wrap>В семействе Windows NT позволяет переключить раскладку клавиатуры на следующую доступную (см. также описание бита 2).
- 1  - ^<wrap>При переключении раскладки выдать звуковой сигнал.
- 2  - ^<wrap>Использовать предопределённые именованные правила для "двойных" клавиш.
-      ^<wrap>Также, если задано автоматическое переключение, то переключение раскладок происходит только
-по списку значений, перечисленных в ~XLat.Layouts~@XLat.Layouts@, независимо от количества установленных в системе раскладок.
-      ^<wrap>Пример см. в Addons\XLat\Russian\Qwerty.farconfig (name="00000409" и name="00000419")
-Такие правила возможно поменять только из ~командной строки~@CmdLine@ (параметр /import)
- 16 - ^<wrap>Конвертировать всю командную строку при отсутствии выделенного блока.
+ Bit numbers:
+ 0  - ^<wrap>Automatically switch keyboard layout after transcoding
+operation. Far cycles through all system keyboard layouts or layouts
+defined in ~XLat.Layouts~@XLat.Layouts@ config parameter.
+ 1  - Sound beep after switching keyboard layout.
+ 2  - When a character could not be transcoded using
+~XLat.Tables~@XLat.Tables@, Far will attempt to apply special
+~XLat.Rules~@XLat.Rules@. If this bit is set and there is a named rule
+corresponding to the current keyboard layout, this rule will be used;
+otherwise, one of the three numbered rules will be used.
+ 16 - Transcode the entire command line if nothing is selected.
 
- По умолчанию значение = 0x00010001 (переключить раскладку и конвертировать всю командную строку при отсутствии выделенного блока)
+ Default value: 0x00010001 (switch keyboard layout and transcode the
+entire command line if no selection).
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ See also Addons\XLat\Russian\Qwerty.farconfig.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @XLat.Tables
 $ #far:config XLat.Tables#
- Параметры "XLat.Table*" и "XLat.Rules*" задают перекодировочные таблицы и особые правила конвертации строк.
+ These string parameters define two-way transcoding table which is used
+by Far API function XLat (string transcoding based on keyboard layout).
 
- Перекодировочная таблица #XLat.Table1# содержит набор символов национальной кодировки.
+ #XLat.Table1# ^<wrap>is the list of characters from the national
+alphabet which will be replaced with their Latin counterparts defined
+in #XLat.Table2#.
+ #XLat.Table2# is the list of Latin characters which will be replaced
+with their national counterparts defined in #XLat.Table1#.
 
- Перекодировочная таблица #XLat.Table2# содержит набор латинских символов, соответствующих символам национальной кодировки на клавиатуре (см. свою клавиатуру).
+ Default value: empty string (transcoding table is not defined).
 
- Значение #XLat.Rules1# содержит пары правил для случая "если предыдущий символ русский". Первый символ - что меняем, второй - на что меняем. Допускается
+ If a character cannot be transcoded using the table, Far will attempt
+to apply special ~XLat.Rules~@XLat.Rules@.
 
- Значение #XLat.Rules2# содержит пары правил для случая "если предыдущий символ латинский". Первый символ - что меняем, второй - на что меняем.
+ See also Addons\XLat\Russian\Qwerty.farconfig.
 
- Значение #XLat.Rules3# содержит пары правил для случая "если предыдущий символ не буква". Первый символ - что меняем, второй - на что меняем - крутим по кругу.
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
- По умолчанию параметры не содержат значений. Если в системе установлена русская раскладка (0x0419) и значение параметра XLat.Table1
-пусто, то Far Manager выставляет следующие умолчания:
- Table1=№АВГДЕЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЯавгдезийклмнопрстуфхцчшщъыьэяёЁБЮ
- Table2=##FDULTPBQRKVYJGHCNEA{WXIO}SMZfdultpbqrkvyjghcnea[wxio]sm'z`~~<>
- Rules1=,??&./б,ю.:^Ж:ж;;$"@@Э"
- Rules2=?,&?/.,б.ю^::Ж;ж$;@@""Э
- Rules3=^::ЖЖ^$;;жж$@""ЭЭ@@&??,,бб&/..юю/
 
- Изменить эти параметры можно через ~far:config~@FarConfig@
+@XLat.Rules
+$ #far:config XLat.Rules#
+ These string parameters define special transcoding rules used by Far
+API function XLat (string transcoding based on keyboard layout).
+
+ Far will attempt to apply special rules if a character could not be
+transcoded using the ~XLat.Tables~@XLat.Tables@.
+
+ Each rule contains the sequence of character pairs. If a character
+in the transcoded string matches the first character in the pair,
+it will be replaced with the second character in the pair.
+
+ One of the three numbered rules is used if the bit 2 (0x04)
+in ~XLat.Flags~@XLat.Flags@ is zero or there is no named rule
+corresponding to the current keyboard layout.
+
+ #XLat.Rules1# ^<wrap>is applied if the previous character in the
+transcoded string is from the national alphabet.
+ #XLat.Rules2# is applied if the previous character in the transcoded
+string is a Latin character.
+ #XLat.Rules3# is applied if the previous character in the transcoded
+string is neither from the national alphabet, nor a Latin character.
+
+ A named special rule is applied if the bit 2 (0x04)
+in ~XLat.Flags~@XLat.Flags@ is set to one. Far uses hexadecimal value
+of the current input locale identifier (keyboard layout) to find the
+corresponding rule. For example, if current keyboard layout is “en-US”,
+Far will look up the rule named #XLat.00000409# and use it if it
+exists. Otherwise, Far will fall back to the numbered rules.
+
+ Default value: empty string for all rules (special rules are not
+defined).
+
+ See also Addons\XLat\Russian\Qwerty.farconfig.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Interface.DelHighlightSelected
 $ #far:config Interface.DelHighlightSelected#
+ This Boolean parameter controls how the items which will be deleted are
+displayed in the file / folder #Delete# confirmation dialog.
+
+ False - ^<wrap>The items to be deleted are always displayed in plain
+text, without highlighting.
+ True  - If more than one item is to be deleted or the deleted item
+is not the item under cursor, the deleted item(s) will be highlighted
+in the dialog.
+
+ Default value: True (highlight the list if it does not match the item
+under cursor).
+
+ Note: This parameter does not affect which items will be deleted;
+it only controls how the deleted items are shown in the dialog.
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
+
+
+@Interface.DelShowSelected
 $ #far:config Interface.DelShowSelected#
+ This numeric parameter controls the number of items which are displayed
+in the file / folder #Delete# confirmation dialog.
 
- Interface.DelHighlightSelected -- bool, default = true.
+ The maximum number of displayed items is either this parameter’s value
+or half of Far window height, whichever is less. The minimum number
+of items is one.
 
- true -- выделяем случай, когда список удаляемых объектов отличается от объекта под курсором.
+ Default value: 10.
 
- Interface.DelShowSelected -- int, default = 10.
- При множественном удалении показываем имена удаляемых объектов. Не более чем заданное число,
-приведённое к диапазону 1…высота_окна/2
-
- Старое поведение = (false, 1)
-
- Изменить эти параметры можно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @History.Config
 $ #far:config History.*#
- Данный блок параметров позволяет ограничить размеры списков и время жизни элементов следующих историй:
+ These parameters limit the number and the lifetime of the items of the
+following histories:
 
- - история ~команд~@History@ в командной строке:
+ - History of command line ~commands~@History@:
    #History.CommandHistory.Count#
    #History.CommandHistory.Lifetime#
 
- - история строк ввода в диалогах:
+ - History of entries in dialog edit controls:
    #History.DialogHistory.Count#
    #History.DialogHistory.Lifetime#
 
- - история ~посещения папок~@HistoryFolders@:
+ - History of recently ~visited folders~@HistoryFolders@:
    #History.FolderHistory.Count#
    #History.FolderHistory.Lifetime#
 
- - история ~просмотра и редактирования~@HistoryViews@:
+ - History of recently ~viewed and edited files~@HistoryViews@:
    #History.ViewEditHistory.Count#
    #History.ViewEditHistory.Lifetime#
 
- По умолчанию:
- - максимальный размер списка (.Count) = 1000 элементов
- - время жизни элемента (.Lifetime) = 90 дней
+ Default values:
+ - Maximum history size (*.Count): 1000 items
+ - Lifetime of an item (*.Lifetime): 90 days
 
- Изменить эти параметры можно через ~far:config~@FarConfig@
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Editor.F8CPs
 $ #far:config Editor.F8CPs#
 $ #far:config Viewer.F8CPs#
- Строка позволяющая задавать список кодовых страниц используемых при переключении
-кодировки клавишей #F8# в редакторе или просмотрщике.
+ These string parameters define code pages which are cycled through when
+#F8# key is pressed in ~Editor~@Editor@ or ~Viewer~@Viewer@.
 
- Умолчательное значение - #""#, в этом случае используются только кодовые
-страницы ANSI и OEM.
+ The value of each parameter is a list of code page numbers or symbolic
+names listed below. Symbolic names are case insensitive. Duplicated
+code pages, as well as unsupported code pages, are ignored.
 
- Если задать строку #"-1"#, то кроме ANSI и OEM в список переключения добавляется
-умолчательная кодовая страница редактора/просмотрщика (если отличается).
+ - #ANSI#    ^<wrap>variants #ACP#, #WIN#
+ - #OEM#     variants #OEMCP#, #DOS#
+ - #UTF8#    variant #UTF-8#
+ - #DEFAULT# stands for the default code page defined in
+~Editor~@EditorSettings@ or ~Viewer~@ViewerSettings@ settings dialog.
 
- В противном случае строка должна быть списком номеров кодовых страниц.
-Кроме номеров можно использовать также имена - ANSI/OEM/UTF8/DEFAULT.
-Дубликаты и неподдерживаемые кодовые страницы удаляются.
-Пример: #"ANSI,OEM,65001"#.
+ If the string is empty or does not contain any supported code pages,
+ANSI and OEM code pages are used.
 
- Изменение этого параметра возможно через ~far:config~@FarConfig@
+ Special parameter value of #-1# stands for #ANSI;OEM;Default#.
+
+ Example: #ANSI,OEM,65001#.
+
+ Default value: empty string (ANSI and OEM code pages).
+
+ This parameter can be changed via ~far:config~@FarConfig@ only.
 
 
 @Panel.Tree.TurnOffCompletely
 $ #far:config Panel.Tree.TurnOffCompletely#
- If “true”, all folder tree operations are unavailable:
+ This Boolean parameter enables or disables all folder tree operations:
 
- - ~Tree panel~@TreePanel@ mode in ~left and right menus~@LeftRightMenu@,
-as well as toggle tree panel shortcut key #Ctrl+T#.
- - ~Find folder~@FindFolder@ panel command (#Alt+F10#).
+ - ^<wrap>~Tree panel~@TreePanel@ mode in
+~left and right menus~@LeftRightMenu@;
+ - The toggle tree panel shortcut key (#Ctrl+T#);
+ - ~Find folder~@FindFolder@ panel command (#Alt+F10#);
  - Folder tree operations in ~copy, move and rename~@CopyFiles@
-dialog (#F10# #Alt+F10# #Shift+F10#).
+dialog (#F10#, #Alt+F10#, and #Shift+F10#).
 
- Also, folder tree cache files, even if already exist, are not updated
-during folder create / delete / rename operations.
+ False - ^<wrap>Folder tree operations are #enabled#.
+ True  - All folder tree operations are #disabled#.
 
- Default value: True
+ Note: If folder tree operations are disabled, folder tree cache files,
+even if already exist, are not updated when folders are created,
+deleted, or renamed.
+
+ Default value: True (all folder tree operations are disabled).
 
  This parameter can be changed via ~far:config~@FarConfig@ only.
 

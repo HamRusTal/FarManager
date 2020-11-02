@@ -32,6 +32,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "dlgedit.hpp"
 
@@ -116,7 +119,7 @@ DlgEdit::~DlgEdit()
 }
 
 
-void DlgEdit::SetHistory(const string& Name)
+void DlgEdit::SetHistory(string_view const Name)
 {
 	iHistory = std::make_unique<History>(HISTORYTYPE_DIALOG, Name, Global->Opt->Dialogs.EditHistory);
 }
@@ -247,7 +250,7 @@ bool DlgEdit::GetOvertypeMode() const
 		return lineEdit->GetOvertypeMode();
 }
 
-void DlgEdit::SetInputMask(const string& InputMask)
+void DlgEdit::SetInputMask(string_view const InputMask)
 {
 	if (Type == DLGEDIT_SINGLELINE)
 		lineEdit->SetInputMask(InputMask);
@@ -294,7 +297,7 @@ bool DlgEdit::GetClearFlag() const
 		return lineEdit->GetClearFlag();
 }
 
-void DlgEdit::SetHiString(const string& Str)
+void DlgEdit::SetHiString(string_view const Str)
 {
 #if defined(PROJECT_DI_MEMOEDIT)
 
@@ -316,7 +319,7 @@ void DlgEdit::Changed()
 	}
 }
 
-void DlgEdit::SetString(const string& Str)
+void DlgEdit::SetString(string_view const Str)
 {
 #if defined(PROJECT_DI_MEMOEDIT)
 
@@ -331,7 +334,7 @@ void DlgEdit::SetString(const string& Str)
 	}
 }
 
-void DlgEdit::InsertString(const string& Str)
+void DlgEdit::InsertString(string_view const Str)
 {
 #if defined(PROJECT_DI_MEMOEDIT)
 	if (Type == DLGEDIT_MULTILINE)
@@ -607,7 +610,7 @@ int  DlgEdit::GetStrSize(int Row) const
 		return lineEdit->m_Str.size();
 }
 
-void DlgEdit::SetCursorType(bool Visible, DWORD Size)
+void DlgEdit::SetCursorType(bool const Visible, size_t const Size)
 {
 #if defined(PROJECT_DI_MEMOEDIT)
 
@@ -618,7 +621,7 @@ void DlgEdit::SetCursorType(bool Visible, DWORD Size)
 		lineEdit->SetCursorType(Visible,Size);
 }
 
-void DlgEdit::GetCursorType(bool& Visible, DWORD& Size) const
+void DlgEdit::GetCursorType(bool& Visible, size_t& Size) const
 {
 #if defined(PROJECT_DI_MEMOEDIT)
 

@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "print.hpp"
 
@@ -119,7 +122,7 @@ void PrintFiles(FileList* SrcPanel)
 				PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS,
 				nullptr,
 				4,
-				static_cast<BYTE*>(static_cast<void*>(pi.get())),
+				static_cast<BYTE*>(static_cast<void*>(pi.data())),
 				static_cast<DWORD>(pi.size()),
 				&Needed,
 				&PrintersCount
@@ -158,7 +161,7 @@ void PrintFiles(FileList* SrcPanel)
 			const auto PrinterList = VMenu2::create(strTitle, {}, ScrY - 4);
 			PrinterList->SetMenuFlags(VMENU_WRAPMODE | VMENU_SHOWAMPERSAND);
 			PrinterList->SetPosition({ -1, -1, 0, 0 });
-			AddToPrintersMenu(PrinterList.get(), { pi.get(), PrintersCount });
+			AddToPrintersMenu(PrinterList.get(), { pi.data(), PrintersCount });
 
 			if (PrinterList->Run() < 0)
 				return;
@@ -187,7 +190,15 @@ void PrintFiles(FileList* SrcPanel)
 		SetCursorType(false, 0);
 		PR_PrintMsg();
 		const auto hPlugin = SrcPanel->GetPluginHandle();
-		const auto PluginMode = SrcPanel->GetMode() == panel_mode::PLUGIN_PANEL && !Global->CtrlObject->Plugins->UseFarCommand(hPlugin, PLUGIN_FARGETFILE);
+
+		const auto UseInternalCommand = [&]
+		{
+			OpenPanelInfo Info;
+			Global->CtrlObject->Plugins->GetOpenPanelInfo(hPlugin, &Info);
+			return PluginManager::UseInternalCommand(hPlugin, PLUGIN_FARGETFILE, Info);
+		};
+
+		const auto PluginMode = SrcPanel->GetMode() == panel_mode::PLUGIN_PANEL && !UseInternalCommand();
 
 		for (const auto& i: SrcPanel->enum_selected())
 		{
@@ -229,7 +240,7 @@ void PrintFiles(FileList* SrcPanel)
 			{
 				const os::fs::file SrcFile(FileName, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING);
 				if (!SrcFile)
-					throw MAKE_FAR_EXCEPTION(L"Cannot open file"sv);
+					throw MAKE_FAR_EXCEPTION(L"Cannot open the file"sv);
 
 				os::fs::filebuf StreamBuffer(SrcFile, std::ios::in);
 				std::istream Stream(&StreamBuffer);
@@ -244,7 +255,7 @@ void PrintFiles(FileList* SrcPanel)
 
 				for (;;)
 				{
-					char Buffer[8192];
+					std::byte Buffer[8192];
 					const auto Read = io::read(Stream, Buffer);
 					if (!Read)
 						break;
@@ -258,7 +269,7 @@ void PrintFiles(FileList* SrcPanel)
 			}
 			catch (const far_exception& e)
 			{
-				if (Message(MSG_WARNING, e.error_state(),
+				if (Message(MSG_WARNING, e,
 					msg(lng::MPrintTitle),
 					{
 						msg(lng::MCannotPrint),
@@ -271,7 +282,7 @@ void PrintFiles(FileList* SrcPanel)
 	}
 	catch (const far_exception& e)
 	{
-		Message(MSG_WARNING, e.error_state(),
+		Message(MSG_WARNING, e,
 			msg(lng::MPrintTitle),
 			{},
 			{ lng::MOk });

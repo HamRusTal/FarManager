@@ -95,18 +95,73 @@ namespace std::this_thread
 }
 #endif
 
-#if COMPILER(GCC)
-#if _GCC_VER < GCC_VER_(7,2,0)
-// https://gcc.gnu.org/git/?p=gcc.git;a=commit;h=fd847994d5093b888c5cc1ead8625c6c1c03501b
+
+#ifndef __cpp_lib_erase_if
 namespace std
 {
-	template<typename forward_iterator_type, typename searcher_type>
-	forward_iterator_type search(forward_iterator_type First, forward_iterator_type Last, const searcher_type& Searcher)
+	namespace detail
 	{
-		return Searcher(First, Last).first;
+		template<typename container, typename predicate>
+		void associative_erase_if(container& Container, const predicate& Predicate)
+		{
+			for (auto i = Container.begin(), End = Container.end(); i != End; )
+			{
+				if (Predicate(*i))
+				{
+					i = Container.erase(i);
+				}
+				else
+				{
+					++i;
+				}
+			}
+		}
 	}
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::set<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::multiset<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::map<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::multimap<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::unordered_set<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::unordered_multiset<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::unordered_map<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
+
+	template <typename predicate, typename... traits>
+	void erase_if(std::unordered_multimap<traits...>& Container, predicate Predicate) { detail::associative_erase_if(Container, Predicate); }
 }
 #endif
+
+#if COMPILER(CLANG) && IS_MICROSOFT_SDK() && defined __cpp_char8_t && !defined __cpp_lib_char8_t
+namespace std
+{
+	inline namespace literals
+	{
+		inline namespace string_view_literals
+		{
+WARNING_PUSH()
+WARNING_DISABLE_CLANG("-Wuser-defined-literals")
+			[[nodiscard]]
+			constexpr basic_string_view<char8_t> operator"" sv(const char8_t* const Str, size_t const Size) noexcept
+			{
+				return { Str, Size };
+			}
+WARNING_POP()
+		}
+	}
+}
 #endif
 
 #endif // CPP_HPP_95E41B70_5DB2_4E5B_A468_95343C6438AD

@@ -1,4 +1,4 @@
-#include "NetCommon.hpp"
+п»ї#include "NetCommon.hpp"
 #include "NetCfg.hpp"
 #include "NetFavorites.hpp"
 #include "NetClass.hpp"
@@ -31,7 +31,7 @@ static __int64 GetSetting(FARSETTINGS_SUBFOLDERS Root,const wchar_t* Name)
 FILE* NetBrowser::LogFile = NULL;
 int NetBrowser::LogFileRef = 0;
 
-void NetBrowser::OpenLogFile(wchar_t *lpFileName)
+void NetBrowser::OpenLogFile(const wchar_t *lpFileName)
 {
 	if (!LogFileRef)
 		LogFile = _wfopen(lpFileName, L"a+t");
@@ -49,7 +49,7 @@ void NetBrowser::CloseLogfile()
 	if (!LogFileRef && LogFile)fclose(LogFile),LogFile = NULL;
 }
 
-void NetBrowser::LogData(wchar_t * Data)
+void NetBrowser::LogData(const wchar_t * Data)
 {
 	if (LogFile)
 	{
@@ -551,7 +551,7 @@ BOOL NetBrowser::CancelConnection(const wchar_t *RemoteName)
 
 			if (Info.Message(&MainGuid, nullptr,FMSG_WARNING|FMSG_ERRORTYPE,NULL,MsgItems,ARRAYSIZE(MsgItems),2)==0)
 
-				// всегда рвать соединение
+				// РІСЃРµРіРґР° СЂРІР°С‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ
 				if (WNetCancelConnection2(LocalName,UpdateProfile,TRUE)!=NO_ERROR)
 					Failed=TRUE;
 		}

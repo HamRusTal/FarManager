@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "panelmix.hpp"
 
@@ -52,6 +55,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "string_utils.hpp"
 #include "cvtname.hpp"
 #include "global.hpp"
+#include "exception.hpp"
 
 // Platform:
 
@@ -147,7 +151,7 @@ void ShellUpdatePanels(panel_ptr SrcPanel, bool NeedSetUpADir)
 	Global->CtrlObject->Cp()->Redraw();
 }
 
-bool CheckUpdateAnotherPanel(panel_ptr SrcPanel, const string& SelName)
+bool CheckUpdateAnotherPanel(panel_ptr SrcPanel, string_view const SelName)
 {
 	if (!SrcPanel)
 		SrcPanel = Global->CtrlObject->Cp()->ActivePanel();
@@ -298,7 +302,7 @@ bool MakePathForUI(DWORD Key, string &strPathName)
 				break;
 			}
 
-			const auto FilePath = Key == KEY_SHIFTENTER || Key == KEY_CTRLSHIFTENTER || Key == KEY_RCTRLSHIFTENTER || Key == KEY_SHIFTNUMENTER || Key == KEY_CTRLSHIFTNUMENTER || Key == KEY_RCTRLSHIFTNUMENTER;
+			const auto FilePath = any_of(Key, KEY_SHIFTENTER, KEY_CTRLSHIFTENTER, KEY_RCTRLSHIFTENTER, KEY_SHIFTNUMENTER, KEY_CTRLSHIFTNUMENTER, KEY_RCTRLSHIFTNUMENTER);
 			if (!SrcPanel || !MakePath(SrcPanel, FilePath, RealName, true, strPathName))
 				return false;
 
@@ -313,7 +317,7 @@ bool MakePathForUI(DWORD Key, string &strPathName)
 	}
 }
 
-std::vector<column> DeserialiseViewSettings(const string& ColumnTitles,const string& ColumnWidths)
+std::vector<column> DeserialiseViewSettings(string_view const ColumnTitles, string_view const ColumnWidths)
 {
 	// BUGBUG, add error checking
 
@@ -596,14 +600,14 @@ std::pair<string, string> SerialiseViewSettings(const std::vector<column>& Colum
 	return Result;
 }
 
-string FormatStr_Attribute(DWORD FileAttributes, size_t Width)
+string FormatStr_Attribute(os::fs::attributes FileAttributes, size_t const Width)
 {
 	string OutStr;
 
 	if (!FileAttributes)
 		FileAttributes = FILE_ATTRIBUTE_NORMAL;
 
-	enum_attributes([&](DWORD Attribute, wchar_t Character)
+	enum_attributes([&](os::fs::attributes const Attribute, wchar_t const Character)
 	{
 		if (FileAttributes & Attribute)
 		{
@@ -649,7 +653,7 @@ string FormatStr_DateTime(os::chrono::time_point FileTime, column_type const Col
 		{
 			if (!Brief)
 			{
-				int CmpWidth=ColumnWidth-(TextMonth? 1: 0);
+				const auto CmpWidth = ColumnWidth - (TextMonth? 1 : 0);
 
 				if (CmpWidth==15 || CmpWidth==16 || CmpWidth==18 || CmpWidth==19 || CmpWidth>21)
 					FullYear = true;
@@ -685,8 +689,8 @@ string FormatStr_DateTime(os::chrono::time_point FileTime, column_type const Col
 
 string FormatStr_Size(
 	long long const Size,
-	string const& strName,
-	DWORD const FileAttributes,
+	string_view const strName,
+	os::fs::attributes const FileAttributes,
 	DWORD const ShowFolderSize,
 	DWORD const ReparseTag,
 	column_type const ColumnType,
@@ -696,7 +700,7 @@ string FormatStr_Size(
 {
 	string strResult;
 
-	bool Streams = (ColumnType == column_type::streams_size);
+	const auto Streams = ColumnType == column_type::streams_size;
 
 	if (ShowFolderSize==2)
 	{
@@ -704,9 +708,9 @@ string FormatStr_Size(
 		strResult += L'~';
 	}
 
-	bool dir = (0 != (FileAttributes & FILE_ATTRIBUTE_DIRECTORY));
-	bool rpt = (0 != (FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT));
-	bool have_size = !dir && (!rpt || ReparseTag==IO_REPARSE_TAG_DEDUP || Size > 0);
+	const auto dir = (0 != (FileAttributes & FILE_ATTRIBUTE_DIRECTORY));
+	const auto rpt = (0 != (FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT));
+	const auto have_size = !dir && (!rpt || ReparseTag==IO_REPARSE_TAG_DEDUP || Size > 0);
 
 	if (!Streams && !have_size && !ShowFolderSize)
 	{

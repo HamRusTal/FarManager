@@ -27,7 +27,6 @@ SRCS = \
 	sqlite_unicode.c \
 	cache.cpp \
 	cddrv.cpp \
-	chgprior.cpp \
 	clipboard.cpp \
 	cmdline.cpp \
 	codepage_selection.cpp \
@@ -99,7 +98,6 @@ SRCS = \
 	keybar.cpp \
 	keyboard.cpp \
 	language.cpp \
-	lasterror.cpp \
 	locale.cpp \
 	lockscrn.cpp \
 	macro.cpp \
@@ -129,6 +127,7 @@ SRCS = \
 	platform.memory.cpp \
 	platform.reg.cpp \
 	platform.security.cpp \
+	platform.version.cpp \
 	plist.cpp \
 	plclass.cpp \
 	plugapi.cpp \
@@ -182,11 +181,17 @@ MAP = $(patsubst %.exe,%.map,$(EXEFULLNAME))
 
 TESTOBJS = $(OBJDIR)api_test_c.testobj $(OBJDIR)api_test_c++.testobj
 
-ADDINCLUDE=-I$(BOOTSTRAPDIR)..
-CCFLAGS += $(ADDINCLUDE)
+ADDINCLUDE=-I$(BOOTSTRAPDIR).. 
+FORCEINCLUDE_DISABLED_WARNINGS=-include disabled_warnings.hpp
+FORCEINCLUDE=$(FORCEINCLUDE_DISABLED_WARNINGS) -include headers.hpp -include memcheck.hpp
+
+CFLAGS += $(FORCEINCLUDE_DISABLED_WARNINGS)
+CCFLAGS += $(ADDINCLUDE) $(FORCEINCLUDE)
 
 .PHONY: all
-all: dirs lng depfile include docs $(TESTOBJS)
+all:
+	$(MAKE) -f $(THIS_MAKE) $(MK_FLAGS) dirs
+	$(MAKE) -f $(THIS_MAKE) $(MK_FLAGS) lng depfile include docs $(TESTOBJS)
 	$(MAKE) -f $(THIS_MAKE) $(MK_FLAGS) build
 
 .PHONY: lng
@@ -209,7 +214,6 @@ include: \
 	$(FARINCLUDE)FarColorW.pas \
 	$(FARINCLUDE)farcolor.hpp \
 	$(FARINCLUDE)plugin.hpp \
-	$(FARINCLUDE)DlgBuilder.hpp \
 	$(FARINCLUDE)vc_crt_fix_impl.cpp \
 	$(FARINCLUDE)vc_crt_fix.asm \
 	$(FARINCLUDE)vc_crt_fix_ulink.cpp
@@ -229,6 +233,13 @@ build: $(EXEFULLNAME)
 $(EXEFULLNAME): $(BOOTSTRAPDIR)copyright.inc $(BOOTSTRAPDIR)farversion.inc $(OBJS)
 	@echo Linking $@
 	$(CXX) -o $@ $(OBJS) $(LNKFLAGS)
+ifdef USE_OBJDUMP_MAPS
+	@echo Generating map file
+	objdump --syms --demangle $(EXEFULLNAME) > $(MAP)
+ifndef DEBUG
+	strip $(EXEFULLNAME)
+endif
+endif
 ifdef ENABLE_TESTS
 	@echo Running unit tests
 	$@ /service:test
@@ -240,7 +251,7 @@ $(OBJDIR)%.o: %.c
 
 $(OBJDIR)%.o: %.cpp
 	@echo $<
-	$(CXX) $(CCFLAGS) -c -include $(OBJDIR)headers -include headers.hpp -include memcheck.hpp -o $@ $<
+	$(CXX) -c -include $(OBJDIR)headers $(CCFLAGS) -o $@ $<
 
 $(OBJDIR)headers.gch: headers.cpp headers.hpp
 	@echo Making precompiled headers
@@ -248,15 +259,15 @@ $(OBJDIR)headers.gch: headers.cpp headers.hpp
 
 $(OBJS): $(OBJDIR)headers.gch
 
-$(OBJDIR)far.rc.o: far.rc $(BOOTSTRAPDIR)far.rc.inc $(BOOTSTRAPDIR)Far.exe.manifest Far.ico FarA.ico
-	@echo Compiling resource file
+$(OBJDIR)far.rc.o: far.rc $(BOOTSTRAPDIR)far.rc.inc $(BOOTSTRAPDIR)Far.exe.manifest Far.ico Far.red.ico Far.black.ico Far.hack.ico Far.mono.ico Far.msg.ico
+	@echo $<
 	$(WINDRES) $(ADDINCLUDE) -i $< -o $@
 
 $(OBJDIR)api_test_c.testobj: $(FARINCLUDE)plugin.hpp $(FARINCLUDE)farcolor.hpp api_test.c
 	@echo Testing C plugin API
 	$(CC) $(CFLAGS) -c -x c -o $@ api_test.c
 
-$(OBJDIR)api_test_c++.testobj: $(FARINCLUDE)plugin.hpp $(FARINCLUDE)farcolor.hpp $(FARINCLUDE)DlgBuilder.hpp api_test.c
+$(OBJDIR)api_test_c++.testobj: $(FARINCLUDE)plugin.hpp $(FARINCLUDE)farcolor.hpp api_test.c
 	@echo Testing C++ plugin API
 	$(CXX) $(CCFLAGS) -c -x c++ -o $@ api_test.c
 
@@ -313,10 +324,6 @@ $(FARINCLUDE)farcolor.hpp: farcolor.hpp farversion.m4 tools.m4 vbuild.m4
 $(FARINCLUDE)plugin.hpp: plugin.hpp farversion.m4 tools.m4 vbuild.m4
 	$(MSG)
 	$(M4) -DINPUT=plugin.hpp headers.m4 > $@
-
-$(FARINCLUDE)DlgBuilder.hpp: DlgBuilder.hpp farversion.m4 tools.m4 vbuild.m4
-	$(MSG)
-	$(M4) -DINPUT=DlgBuilder.hpp headers.m4 > $@
 
 $(FARINCLUDE)PluginW.pas: PluginW.pas farversion.m4 tools.m4 vbuild.m4
 	$(MSG)

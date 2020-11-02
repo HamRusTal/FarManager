@@ -31,8 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <windows.h>
 #include <utility>
+
+#include <windows.h>
 
 #ifdef __clang__
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
@@ -406,6 +407,23 @@ extern "C" BOOL WINAPI GetLogicalProcessorInformationWrapper(PSYSTEM_LOGICAL_PRO
 	CREATE_FUNCTION_POINTER(modules::kernel32, GetLogicalProcessorInformation);
 	return Function(Buffer, ReturnLength);
 }
+
+// SetThreadStackGuarantee (VC2019)
+extern "C" BOOL WINAPI SetThreadStackGuaranteeWrapper(PULONG StackSizeInBytes)
+{
+	struct implementation
+	{
+		static BOOL WINAPI SetThreadStackGuarantee(PULONG StackSizeInBytes)
+		{
+			SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+			return FALSE;
+		}
+	};
+
+	CREATE_FUNCTION_POINTER(modules::kernel32, SetThreadStackGuarantee);
+	return Function(StackSizeInBytes);
+}
+
 
 // disable VS2015 telemetry
 extern "C"

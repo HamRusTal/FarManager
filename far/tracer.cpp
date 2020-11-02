@@ -28,6 +28,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "tracer.hpp"
 
@@ -35,7 +38,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "imports.hpp"
 #include "encoding.hpp"
 #include "pathmix.hpp"
-#include "exception.hpp"
 
 // Platform:
 #include "platform.fs.hpp"
@@ -49,123 +51,165 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //----------------------------------------------------------------------------
 
+static auto platform_specific_data(CONTEXT const& ContextRecord)
+{
+	const struct
+	{
+		DWORD MachineType;
+		DWORD64 PC, Frame, Stack;
+	}
+	Data
+	{
+#if defined _M_X64
+		IMAGE_FILE_MACHINE_AMD64,
+		ContextRecord.Rip,
+		ContextRecord.Rbp,
+		ContextRecord.Rsp
+#elif defined _M_IX86
+		IMAGE_FILE_MACHINE_I386,
+		ContextRecord.Eip,
+		ContextRecord.Ebp,
+		ContextRecord.Esp
+#elif defined _M_ARM64
+		IMAGE_FILE_MACHINE_ARM64,
+		ContextRecord.Pc,
+		ContextRecord.Fp,
+		ContextRecord.Sp
+#elif defined _M_ARM
+		IMAGE_FILE_MACHINE_ARM,
+		ContextRecord.Pc,
+		ContextRecord.R11,
+		ContextRecord.Sp
+#else
+		IMAGE_FILE_MACHINE_UNKNOWN
+#endif
+	};
+
+	return Data;
+}
 
 // StackWalk64() may modify context record passed to it, so we will use a copy.
 static auto GetBackTrace(CONTEXT ContextRecord, HANDLE ThreadHandle)
 {
-	std::vector<const void*> Result;
+	std::vector<DWORD64> Result;
+
+	const auto Data = platform_specific_data(ContextRecord);
+
+	if (Data.MachineType == IMAGE_FILE_MACHINE_UNKNOWN || (!Data.PC && !Data.Frame && !Data.Stack))
+		return Result;
+
+	const auto address = [](DWORD64 const Offset)
+	{
+		return ADDRESS64{ Offset, 0, AddrModeFlat };
+	};
 
 	STACKFRAME64 StackFrame{};
-	const DWORD MachineType =
-#ifdef _WIN64
-		IMAGE_FILE_MACHINE_AMD64;
-	StackFrame.AddrPC.Offset = ContextRecord.Rip;
-	StackFrame.AddrFrame.Offset = ContextRecord.Rbp;
-	StackFrame.AddrStack.Offset = ContextRecord.Rsp;
-#else
-		IMAGE_FILE_MACHINE_I386;
-	StackFrame.AddrPC.Offset = ContextRecord.Eip;
-	StackFrame.AddrFrame.Offset = ContextRecord.Ebp;
-	StackFrame.AddrStack.Offset = ContextRecord.Esp;
-#endif
-	StackFrame.AddrPC.Mode = AddrModeFlat;
-	StackFrame.AddrFrame.Mode = AddrModeFlat;
-	StackFrame.AddrStack.Mode = AddrModeFlat;
+	StackFrame.AddrPC    = address(Data.PC);
+	StackFrame.AddrFrame = address(Data.Frame);
+	StackFrame.AddrStack = address(Data.Stack);
 
-	while (imports.StackWalk64(MachineType, GetCurrentProcess(), ThreadHandle, &StackFrame, &ContextRecord, nullptr, imports.SymFunctionTableAccess64, imports.SymGetModuleBase64, nullptr))
+	while (imports.StackWalk64(Data.MachineType, GetCurrentProcess(), ThreadHandle, &StackFrame, &ContextRecord, nullptr, imports.SymFunctionTableAccess64, imports.SymGetModuleBase64, nullptr))
 	{
-		Result.emplace_back(reinterpret_cast<const void*>(StackFrame.AddrPC.Offset));
+		Result.emplace_back(StackFrame.AddrPC.Offset);
 	}
 
 	return Result;
 }
 
-static void GetSymbols(const std::vector<const void*>& BackTrace, function_ref<void(string&&, string&&, string&&)> const Consumer)
+static void GetSymbols(string_view const ModuleName, span<DWORD64 const> const BackTrace, function_ref<void(string&&, string&&, string&&)> const Consumer)
 {
-	SCOPED_ACTION(auto)(tracer::with_symbols());
+	SCOPED_ACTION(tracer::with_symbols)(ModuleName);
 
 	const auto Process = GetCurrentProcess();
 	const auto MaxNameLen = MAX_SYM_NAME;
 	const auto BufferSize = sizeof(SYMBOL_INFO) + MaxNameLen + 1;
+
+	imports.SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_INCLUDE_32BIT_MODULES);
+
+	block_ptr<SYMBOL_INFOW, BufferSize> SymbolW(BufferSize);
+	SymbolW->SizeOfStruct = sizeof(SYMBOL_INFOW);
+	SymbolW->MaxNameLen = MaxNameLen;
+
 	block_ptr<SYMBOL_INFO, BufferSize> Symbol(BufferSize);
 	Symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
 	Symbol->MaxNameLen = MaxNameLen;
 
-	imports.SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_INCLUDE_32BIT_MODULES);
-
-	IMAGEHLP_MODULEW64 Module{ static_cast<DWORD>(aligned_size(offsetof(IMAGEHLP_MODULEW64, LoadedImageName), 8)) }; // use the pre-07-Jun-2002 struct size, aligned to 8
-	IMAGEHLP_LINE64 Line{ sizeof(Line) };
-	DWORD Displacement;
-
-	const auto MaxAddressSize = format(FSTR(L"{0:0X}"), reinterpret_cast<uintptr_t>(*std::max_element(ALL_CONST_RANGE(BackTrace)))).size();
-
-	for (const auto i: BackTrace)
+	const auto FormatAddress = [](DWORD64 const Value)
 	{
-		const auto Address = reinterpret_cast<DWORD_PTR>(i);
-		string sFunction, sLocation;
-		if (Address)
+		// It is unlikely that RVAs will be above 4 GiB,
+		// so we can save some screen space here.
+		return format(FSTR(L"0x{0:0{1}X}"), Value, (Value & 0xffffffff00000000)? 16 : 8);
+	};
+
+	const auto GetName = [&](DWORD64 const Address)
+	{
+		if (imports.SymFromAddrW && imports.SymFromAddrW(Process, Address, nullptr, SymbolW.data()))
+			return string(SymbolW->Name);
+
+		if (imports.SymFromAddr && imports.SymFromAddr(Process, Address, nullptr, Symbol.data()))
+			return encoding::ansi::get_chars(Symbol->Name);
+
+		return L"<unknown> (get the pdb)"s;
+	};
+
+	const auto GetLocation = [&](DWORD64 const Address)
+	{
+		const auto Location = [](string_view const File, unsigned const Line)
 		{
-			sFunction = concat(
-				imports.SymGetModuleInfoW64(Process, Address, &Module)?
-					PointToName(Module.ImageName) :
-					L"<unknown>"sv,
-				L'!',
-				imports.SymFromAddr(Process, Address, nullptr, Symbol.get())?
-					encoding::ansi::get_chars(Symbol->Name) :
-					L"<unknown> (get the pdb)"sv);
+			return format(FSTR(L"{0}:{1}"), File, Line);
+		};
 
-			sLocation = imports.SymGetLineFromAddr64(Process, Address, &Displacement, &Line)?
-				format(FSTR(L"{0}:{1}"), encoding::ansi::get_chars(Line.FileName), Line.LineNumber) :
-				L""sv;
-		}
+		DWORD Displacement;
 
-		Consumer(format(FSTR(L"0x{0:0{1}X}"), Address, MaxAddressSize), std::move(sFunction), std::move(sLocation));
+		IMAGEHLP_LINEW64 LineW{ sizeof(LineW) };
+		if (imports.SymGetLineFromAddrW64 && imports.SymGetLineFromAddrW64(Process, Address, &Displacement, &LineW))
+			return Location(LineW.FileName, LineW.LineNumber);
+
+		IMAGEHLP_LINE64 Line{ sizeof(Line) };
+		if (imports.SymGetLineFromAddr64 && imports.SymGetLineFromAddr64(Process, Address, &Displacement, &Line))
+			return Location(encoding::ansi::get_chars(Line.FileName), Line.LineNumber);
+
+		return L""s;
+	};
+
+	for (const auto Address: BackTrace)
+	{
+		IMAGEHLP_MODULEW64 Module{ static_cast<DWORD>(aligned_size(offsetof(IMAGEHLP_MODULEW64, LoadedImageName), 8)) }; // use the pre-07-Jun-2002 struct size, aligned to 8
+		const auto HasModuleInfo = imports.SymGetModuleInfoW64(Process, Address, &Module);
+
+		Consumer(
+			FormatAddress(Address - Module.BaseOfImage),
+			Address? concat(HasModuleInfo? PointToName(Module.ImageName) : L"<unknown>"sv, L'!', GetName(Address)) : L""s,
+			GetLocation(Address)
+		);
 	}
 }
 
-#if IS_MICROSOFT_SDK()
-extern "C" void** __current_exception();
-extern "C" void** __current_exception_context();
-#else
-static void** __current_exception()
+std::vector<DWORD64> tracer::get(string_view const Module, const EXCEPTION_POINTERS& Pointers, HANDLE ThreadHandle)
 {
-	static EXCEPTION_RECORD DummyRecord{};
-	static void* DummyRecordPtr = &DummyRecord;
-	return &DummyRecordPtr;
-}
-
-static void** __current_exception_context()
-{
-	static CONTEXT DummyContext{};
-	static void* DummyContextPtr = &DummyContext;
-	return &DummyContextPtr;
-}
-#endif
-
-EXCEPTION_POINTERS tracer::get_pointers()
-{
-	return
-	{
-		static_cast<EXCEPTION_RECORD*>(*__current_exception()),
-		static_cast<CONTEXT*>(*__current_exception_context())
-	};
-}
-
-std::vector<const void*> tracer::get(const EXCEPTION_POINTERS& Pointers, HANDLE ThreadHandle)
-{
-	SCOPED_ACTION(auto)(with_symbols());
+	SCOPED_ACTION(tracer::with_symbols)(Module);
 
 	return GetBackTrace(*Pointers.ContextRecord, ThreadHandle);
 }
 
-void tracer::get_symbols(const std::vector<const void*>& Trace, function_ref<void(string&& Address, string&& Name, string&& Source)> const Consumer)
+void tracer::get_symbols(string_view const Module, span<DWORD64 const> const Trace, function_ref<void(string&& Line)> const Consumer)
 {
-	GetSymbols(Trace, Consumer);
+	GetSymbols(Module, Trace, [&](string&& Address, string&& Name, string&& Source)
+	{
+		if (!Name.empty())
+			append(Address, L' ', Name);
+
+		if (!Source.empty())
+			append(Address, L" ("sv, Source, L')');
+
+		Consumer(std::move(Address));
+	});
 }
 
-void tracer::get_symbol(const void* Ptr, string& Address, string& Name, string& Source)
+void tracer::get_symbol(string_view const Module, const void* Ptr, string& Address, string& Name, string& Source)
 {
-	GetSymbols({Ptr}, [&](string&& StrAddress, string&& StrName, string&& StrSource)
+	DWORD64 const Stack[]{ reinterpret_cast<DWORD_PTR>(Ptr) };
+	GetSymbols(Module, Stack, [&](string&& StrAddress, string&& StrName, string&& StrSource)
 	{
 		Address = std::move(StrAddress);
 		Name = std::move(StrName);
@@ -175,7 +219,7 @@ void tracer::get_symbol(const void* Ptr, string& Address, string& Name, string& 
 
 static int s_SymInitialised = 0;
 
-void tracer::sym_initialise()
+void tracer::sym_initialise(string_view Module)
 {
 	if (s_SymInitialised)
 	{
@@ -184,13 +228,19 @@ void tracer::sym_initialise()
 	}
 
 	string Path;
-	if (!os::fs::GetModuleFileName(nullptr, nullptr, Path))
-		throw MAKE_FAR_FATAL_EXCEPTION(L"GetModuleFileName failed"sv);
-
+	(void)os::fs::GetModuleFileName(nullptr, nullptr, Path);
 	CutToParent(Path);
-	const auto SymbolSearchPath = encoding::ansi::get_bytes(Path);
 
-	if (imports.SymInitialize(GetCurrentProcess(), EmptyToNull(SymbolSearchPath), TRUE))
+	if (!Module.empty())
+	{
+		CutToParent(Module);
+		append(Path, L';', Module);
+	}
+
+	if (
+		(imports.SymInitializeW && imports.SymInitializeW(GetCurrentProcess(), EmptyToNull(Path), TRUE)) ||
+		(imports.SymInitialize && imports.SymInitialize(GetCurrentProcess(), EmptyToNull(encoding::ansi::get_bytes(Path)), TRUE))
+	)
 		++s_SymInitialised;
 }
 

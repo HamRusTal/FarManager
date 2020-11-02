@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "elevation.hpp"
 
@@ -39,7 +42,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "dialog.hpp"
 #include "farcolor.hpp"
 #include "colormix.hpp"
-#include "lasterror.hpp"
 #include "fileowner.hpp"
 #include "imports.hpp"
 #include "taskbar.hpp"
@@ -50,6 +52,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "console.hpp"
 #include "string_utils.hpp"
 #include "global.hpp"
+#include "exception.hpp"
+#include "exception_handler.hpp"
 
 // Platform:
 #include "platform.concurrency.hpp"
@@ -60,6 +64,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Common:
 #include "common.hpp"
 #include "common/string_utils.hpp"
+#include "common/uuid.hpp"
 
 // External:
 #include "format.hpp"
@@ -103,13 +108,13 @@ static privilege CreateBackupRestorePrivilege()
 	return { SE_BACKUP_NAME, SE_RESTORE_NAME };
 }
 
-template<typename T, REQUIRES(!std::is_pointer_v<T>)>
+template<typename T>
 static void WritePipe(const os::handle& Pipe, const T& Data)
 {
 	return pipe::write(Pipe, Data);
 }
 
-template<typename T, REQUIRES(!std::is_pointer_v<T>)>
+template<typename T>
 static void ReadPipe(const os::handle& Pipe, T& Data)
 {
 	pipe::read(Pipe, Data);
@@ -123,7 +128,6 @@ public:
 	void set_attributes(const SECURITY_ATTRIBUTES& Attributes)
 	{
 		m_Attributes = Attributes;
-		m_Engaged = true;
 	}
 
 	void set_descriptor(os::security::descriptor&& Descriptor)
@@ -133,17 +137,17 @@ public:
 
 	SECURITY_ATTRIBUTES* operator()() const
 	{
-		if (!m_Engaged)
+		if (!m_Attributes)
 			return nullptr;
 
-		m_Attributes.lpSecurityDescriptor = m_Descriptor? m_Descriptor.get() : nullptr;
-		return &m_Attributes;
+		auto& Attributes = *m_Attributes;
+		Attributes.lpSecurityDescriptor = m_Descriptor ? m_Descriptor.data() : nullptr;
+		return &Attributes;
 	}
 
 private:
 	os::security::descriptor m_Descriptor;
-	mutable SECURITY_ATTRIBUTES m_Attributes{};
-	bool m_Engaged{};
+	mutable std::optional<SECURITY_ATTRIBUTES> m_Attributes;
 };
 
 static void WritePipe(const os::handle& Pipe, os::security::descriptor const& Data)
@@ -154,7 +158,7 @@ static void WritePipe(const os::handle& Pipe, os::security::descriptor const& Da
 	if (!Size)
 		return;
 
-	pipe::write(Pipe, Data.get(), Size);
+	pipe::write(Pipe, Data.data(), Size);
 }
 
 static void WritePipe(const os::handle& Pipe, SECURITY_DESCRIPTOR* Data)
@@ -195,7 +199,7 @@ static void ReadPipe(const os::handle& Pipe, os::security::descriptor& Data)
 		return;
 
 	Data.reset(Size);
-	pipe::read(Pipe, Data.get(), Size);
+	pipe::read(Pipe, Data.data(), Size);
 }
 
 static void ReadPipe(const os::handle& Pipe, security_attributes_wrapper& Data)
@@ -282,7 +286,7 @@ T elevation::RetrieveLastErrorAndResult() const
 }
 
 template<typename T, typename F1, typename F2>
-auto elevation::execute(lng Why, const string& Object, T Fallback, const F1& PrivilegedHander, const F2& ElevatedHandler)
+auto elevation::execute(lng Why, string_view const Object, T Fallback, const F1& PrivilegedHander, const F2& ElevatedHandler)
 {
 	SCOPED_ACTION(std::lock_guard)(m_CS);
 	if (!ElevationApproveDlg(Why, Object))
@@ -317,7 +321,7 @@ auto elevation::execute(lng Why, const string& Object, T Fallback, const F1& Pri
 	}
 }
 
-static os::handle create_named_pipe(const string& Name)
+static os::handle create_named_pipe(string_view const Name)
 {
 	SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
 
@@ -337,7 +341,7 @@ static os::handle create_named_pipe(const string& Name)
 	ea.grfInheritance = NO_INHERITANCE;
 	ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
 	ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-	ea.Trustee.ptstrName = static_cast<LPWSTR>(AdminSID.get());
+	ea.Trustee.ptstrName = static_cast<wchar_t*>(AdminSID.get());
 
 	os::memory::local::ptr<ACL> pACL;
 	if (SetEntriesInAcl(1, &ea, nullptr, &ptr_setter(pACL)) != ERROR_SUCCESS)
@@ -395,10 +399,7 @@ static bool connect_pipe_to_process(const os::handle& Process, const os::handle&
 			return false;
 	}
 
-	os::multi_waiter Waiter;
-	Waiter.add(AEvent);
-	Waiter.add(Process.native_handle());
-	if (Waiter.wait(os::multi_waiter::mode::any, 15s) != WAIT_OBJECT_0)
+	if (const auto Result = os::handle::wait_any({ AEvent.native_handle(), Process.native_handle() }, 15s); !Result || *Result == 1)
 		return false;
 
 	DWORD NumberOfBytesTransferred;
@@ -421,7 +422,7 @@ bool elevation::Initialize()
 
 	if (!m_Pipe)
 	{
-		m_PipeName = GuidToStr(CreateUuid());
+		m_PipeName = uuid::str(os::uuid::generate());
 		m_Pipe = create_named_pipe(m_PipeName);
 		if (!m_Pipe)
 			return false;
@@ -473,6 +474,8 @@ enum ELEVATIONAPPROVEDLGITEM
 	AAD_SEPARATOR,
 	AAD_BUTTON_OK,
 	AAD_BUTTON_SKIP,
+
+	AAD_COUNT,
 };
 
 static intptr_t ElevationApproveDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void* Param2)
@@ -499,12 +502,12 @@ static intptr_t ElevationApproveDlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Para
 
 struct EAData: noncopyable
 {
-	const string& Object;
+	string_view Object;
 	lng Why;
 	bool& AskApprove;
 	bool& IsApproved;
 	bool& DontAskAgain;
-	EAData(const string& Object, lng Why, bool& AskApprove, bool& IsApproved, bool& DontAskAgain):
+	EAData(string_view const Object, lng Why, bool& AskApprove, bool& IsApproved, bool& DontAskAgain):
 		Object(Object), Why(Why), AskApprove(AskApprove), IsApproved(IsApproved), DontAskAgain(DontAskAgain){}
 };
 
@@ -514,7 +517,7 @@ static void ElevationApproveDlgSync(const EAData& Data)
 
 	enum {DlgX=64,DlgY=12};
 
-	auto ElevationApproveDlg = MakeDialogItems(
+	auto ElevationApproveDlg = MakeDialogItems<AAD_COUNT>(
 	{
 		{ DI_DOUBLEBOX, {{3,  1     }, {DlgX-4, DlgY-2}}, DIF_NONE, msg(lng::MAccessDenied), },
 		{ DI_TEXT,      {{5,  2     }, {0,      2     }}, DIF_NONE, msg(is_admin()? lng::MElevationRequiredPrivileges : lng::MElevationRequired), },
@@ -548,14 +551,15 @@ static void ElevationApproveDlgSync(const EAData& Data)
 	Data.DontAskAgain = ElevationApproveDlg[AAD_CHECKBOX_DONTASKAGAIN].Selected == BSTATE_CHECKED;
 }
 
-bool elevation::ElevationApproveDlg(lng Why, const string& Object)
+bool elevation::ElevationApproveDlg(lng const Why, string_view const Object)
 {
 	if (m_Suppressions)
 		return false;
 
 	// request for backup&restore privilege is useless if the user already has them
 	{
-		SCOPED_ACTION(GuardLastError);
+		SCOPED_ACTION(os::last_error_guard);
+
 		if (m_AskApprove && is_admin() && privilege::check(SE_BACKUP_NAME, SE_RESTORE_NAME))
 		{
 			m_AskApprove = false;
@@ -568,8 +572,10 @@ bool elevation::ElevationApproveDlg(lng Why, const string& Object)
  		Global->WindowManager && !Global->WindowManager->ManagerIsDown())
 	{
 		++m_Recurse;
-		SCOPED_ACTION(GuardLastError);
+
+		SCOPED_ACTION(os::last_error_guard);
 		SCOPED_ACTION(taskbar::state)(TBPF_PAUSED);
+
 		EAData Data(Object, Why, m_AskApprove, m_IsApproved, m_DontAskAgain);
 
 		if(!Global->IsMainThread())
@@ -709,7 +715,7 @@ bool elevation::replace_file(const string& To, const string& From, const string&
 }
 
 
-DWORD elevation::get_file_attributes(const string& Object)
+os::fs::attributes elevation::get_file_attributes(const string& Object)
 {
 	return execute(lng::MElevationRequiredGetAttributes, Object,
 		INVALID_FILE_ATTRIBUTES,
@@ -720,11 +726,11 @@ DWORD elevation::get_file_attributes(const string& Object)
 		[&]
 		{
 			Write(C_FUNCTION_GETFILEATTRIBUTES, Object);
-			return RetrieveLastErrorAndResult<DWORD>();
+			return RetrieveLastErrorAndResult<os::fs::attributes>();
 		});
 }
 
-bool elevation::set_file_attributes(const string& Object, DWORD FileAttributes)
+bool elevation::set_file_attributes(const string& Object, os::fs::attributes FileAttributes)
 {
 	return execute(lng::MElevationRequiredSetAttributes, Object,
 		false,
@@ -754,7 +760,7 @@ bool elevation::create_hard_link(const string& Object, const string& Target, SEC
 		});
 }
 
-bool elevation::fCreateSymbolicLink(const string& Object, const string& Target, DWORD Flags)
+bool elevation::fCreateSymbolicLink(string_view const Object, string_view const Target, DWORD Flags)
 {
 	return execute(lng::MElevationRequiredSymLink, Object,
 		false,
@@ -769,37 +775,18 @@ bool elevation::fCreateSymbolicLink(const string& Object, const string& Target, 
 		});
 }
 
-static size_t string_array_length(const wchar_t* const Str)
+bool elevation::fMoveToRecycleBin(string_view const Object)
 {
-	for (auto i = Str;;)
-	{
-		i += wcslen(i) + 1;
-		if (!*i)
-			return i + 1 - Str;
-	}
-}
-
-int elevation::fMoveToRecycleBin(SHFILEOPSTRUCT& FileOpStruct)
-{
-	static const auto DE_ACCESSDENIEDSRC = 0x78;
-	return execute(lng::MElevationRequiredRecycle, FileOpStruct.pFrom,
-		DE_ACCESSDENIEDSRC,
+	return execute(lng::MElevationRequiredRecycle, Object,
+		false,
 		[&]
 		{
-			return SHFileOperation(&FileOpStruct);
+			return os::fs::low::move_to_recycle_bin(Object);
 		},
 		[&]
 		{
-			Write(
-				C_FUNCTION_MOVETORECYCLEBIN,
-				FileOpStruct,
-				string_view{ FileOpStruct.pFrom, string_array_length(FileOpStruct.pFrom) },
-				string_view{ FileOpStruct.pTo, FileOpStruct.pTo? string_array_length(FileOpStruct.pTo) : 0 }
-			);
-
-			Read(FileOpStruct.fAnyOperationsAborted);
-			// achtung! no "last error" here
-			return Read<int>();
+			Write(C_FUNCTION_MOVETORECYCLEBIN, Object);
+			return RetrieveLastErrorAndResult<bool>();
 		});
 }
 
@@ -900,7 +887,7 @@ os::security::descriptor elevation::get_file_security(string const& Object, SECU
 		os::security::descriptor{},
 		[&]
 		{
-			return os::fs::low::get_file_security(Object, RequestedInformation);
+			return os::fs::low::get_file_security(Object.c_str(), RequestedInformation);
 		},
 		[&]
 		{
@@ -915,13 +902,13 @@ bool elevation::set_file_security(string const& Object, SECURITY_INFORMATION con
 		false,
 		[&]
 		{
-			return os::fs::low::set_file_security(Object.c_str(), RequestedInformation, Descriptor.get());
+			return os::fs::low::set_file_security(Object.c_str(), RequestedInformation, Descriptor.data());
 		},
 		[&]
 		{
 
 			Write(C_FUNCTION_SETFILESECURITY, Object, RequestedInformation);
-			pipe::write(m_Pipe, Descriptor.get(), Descriptor.size());
+			pipe::write(m_Pipe, Descriptor.data(), Descriptor.size());
 			return RetrieveLastErrorAndResult<bool>();
 		});
 }
@@ -995,7 +982,7 @@ public:
 
 		{
 			// basic security checks
-			ULONG ServerProcessId;
+			ULONG ServerProcessId = 0;
 			if (imports.GetNamedPipeServerProcessId && (!imports.GetNamedPipeServerProcessId(m_Pipe.native_handle(), &ServerProcessId) || ServerProcessId != PID))
 				return GetLastError();
 
@@ -1023,7 +1010,7 @@ public:
 				break;
 		}
 
-		return 0;
+		return EXIT_SUCCESS;
 	}
 
 private:
@@ -1173,16 +1160,11 @@ private:
 
 	void MoveToRecycleBinHandler() const
 	{
-		auto Struct = Read<SHFILEOPSTRUCT>();
-		const auto From = Read<string>();
-		const auto To = Read<string>();
+		const auto Object = Read<string>();
 
-		Struct.pFrom = From.c_str();
-		Struct.pTo = To.c_str();
+		const auto Result = os::fs::low::move_to_recycle_bin(Object);
 
-		const auto Result = SHFileOperation(&Struct);
-
-		Write(Struct.fAnyOperationsAborted, Result);
+		Write(error_state::fetch(), Result);
 	}
 
 	void SetOwnerHandler() const
@@ -1268,9 +1250,9 @@ private:
 		const auto SecurityInformation = Read<SECURITY_INFORMATION>();
 		const auto Size = Read<size_t>();
 		const os::security::descriptor SecurityDescriptor(Size);
-		pipe::read(m_Pipe, SecurityDescriptor.get(), Size);
+		pipe::read(m_Pipe, SecurityDescriptor.data(), Size);
 
-		const auto Result = os::fs::low::set_file_security(Object.c_str(), SecurityInformation, SecurityDescriptor.get());
+		const auto Result = os::fs::low::set_file_security(Object.c_str(), SecurityInformation, SecurityDescriptor.data());
 
 		Write(error_state::fetch(), Result);
 	}
@@ -1287,7 +1269,9 @@ private:
 	static DWORD CALLBACK CopyProgressRoutineWrapper(LARGE_INTEGER TotalFileSize, LARGE_INTEGER TotalBytesTransferred, LARGE_INTEGER StreamSize, LARGE_INTEGER StreamBytesTransferred, DWORD StreamNumber, DWORD CallbackReason, HANDLE SourceFile,HANDLE DestinationFile, LPVOID Data)
 	{
 		const auto Param = static_cast<callback_param*>(Data);
-		try
+
+		return cpp_try(
+		[&]
 		{
 			const auto Context = Param->Owner;
 
@@ -1312,10 +1296,12 @@ private:
 				// nested call from ProgressRoutine()
 				Context->Process(Result);
 			}
-		}
-		CATCH_AND_SAVE_EXCEPTION_TO(Param->ExceptionPtr)
-
-		return PROGRESS_CANCEL;
+		},
+		[&]
+		{
+			SAVE_EXCEPTION_TO(Param->ExceptionPtr);
+			return PROGRESS_CANCEL;
+		});
 	}
 
 	bool Process(int Command) const

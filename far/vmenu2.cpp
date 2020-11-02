@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "vmenu2.hpp"
 
@@ -113,7 +116,7 @@ intptr_t VMenu2::VMenu2DlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void*
 	case DN_CLOSE:
 		if(!ForceClosing && !Param1 && GetItemFlags() & (LIF_GRAYED|LIF_DISABLE))
 			return false;
-		if(Call(Msg, (void*)(Param1<0 ? Param1 : GetSelectPos())))
+		if(Call(Msg, reinterpret_cast<void*>(Param1 < 0? Param1 : GetSelectPos())))
 			return false;
 		break;
 
@@ -151,6 +154,9 @@ intptr_t VMenu2::VMenu2DlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void*
 		break;
 
 	case DN_LISTCHANGE:
+		if (Dlg->CheckDialogMode(DMODE_ISMENU))
+			break;
+		[[fallthrough]];
 	case DN_ENTERIDLE:
 		if(!cancel)
 		{
@@ -163,7 +169,7 @@ intptr_t VMenu2::VMenu2DlgProc(Dialog* Dlg, intptr_t Msg, intptr_t Param1, void*
 		if(!cancel)
 		{
 			INPUT_RECORD ReadRec={WINDOW_BUFFER_SIZE_EVENT};
-			ReadRec.Event.WindowBufferSizeEvent.dwSize=*(COORD*)Param2;
+			ReadRec.Event.WindowBufferSizeEvent.dwSize = *static_cast<COORD*>(Param2);
 			if(Call(DN_INPUT, &ReadRec))
 				return false;
 			else
@@ -190,10 +196,10 @@ int VMenu2::Call(int Msg, void *param)
 		return 0;
 
 	++InsideCall;
-	int r=mfn(Msg, param);
+	const auto r = mfn(Msg, param);
 
 	bool Visible;
-	DWORD Size;
+	size_t Size;
 
 	GetCursorType(Visible, Size);
 	const auto CursorPos = GetCursorPos();
@@ -237,7 +243,7 @@ void VMenu2::Resize(bool force)
 
 	int X1 = m_X1;
 	int Y1 = m_Y1;
-	if(!ShortBox)
+	if(m_BoxType == box_type::full)
 	{
 		if(X1>1)
 			X1-=2;
@@ -246,7 +252,7 @@ void VMenu2::Resize(bool force)
 	}
 
 
-	int width=info.MaxLength+(ShortBox?2:6) + 3;
+	int width = info.MaxLength + (m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 2 : 6) + 3;
 	if(m_X2>0)
 		width=m_X2-X1+1;
 
@@ -258,14 +264,13 @@ void VMenu2::Resize(bool force)
 	if(MaxHeight && height>MaxHeight)
 		height=MaxHeight;
 
-	height+=ShortBox?2:4;
+	height += m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 2 : 4;
 	if(m_Y2>0)
 		height=m_Y2-Y1+1;
 
-
 	int mh=Y1<0 ? ScrY : ScrY-Y1;
 
-	mh+=ShortBox ? 1 : 2;
+	mh += m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 1 : 2;
 
 	if(mh<0)
 		mh=0;
@@ -273,7 +278,7 @@ void VMenu2::Resize(bool force)
 	{
 		if(m_Y2<=0 && Y1>=ScrY/2)
 		{
-			Y1+=ShortBox?1:3;
+			Y1 += m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 1 : 3;
 			if(height>Y1)
 				height=Y1;
 			Y1-=height;
@@ -293,19 +298,19 @@ void VMenu2::Resize(bool force)
 	SendMessage(DM_RESIZEDIALOG, true, &size);
 
 	SMALL_RECT ipos;
-	if(ShortBox)
+	if (m_BoxType == box_type::full)
 	{
-		ipos.Left=0;
-		ipos.Top=0;
-		ipos.Right=width-1;
-		ipos.Bottom=height-1;
+		ipos.Left = 2;
+		ipos.Top = 1;
+		ipos.Right = width - 3;
+		ipos.Bottom = height - 2;
 	}
 	else
 	{
-		ipos.Left=2;
-		ipos.Top=1;
-		ipos.Right=width-3;
-		ipos.Bottom=height-2;
+		ipos.Left = 0;
+		ipos.Top = 0;
+		ipos.Right = width - 1;
+		ipos.Bottom = height - 1;
 	}
 	SendMessage(DM_SETITEMPOSITION, 0, &ipos);
 
@@ -336,16 +341,16 @@ string VMenu2::GetMenuTitle(bool bottom)
 	{
 		size=titles.BottomSize;
 		title.reset(size);
-		titles.Bottom = title.get();
+		titles.Bottom = title.data();
 	}
 	else
 	{
 		size=titles.TitleSize;
 		title.reset(size);
-		titles.Title = title.get();
+		titles.Title = title.data();
 	}
 	SendMessage(DM_LISTGETTITLES, 0, &titles);
-	return { title.get(), size - 1 };
+	return { title.data(), size - 1 };
 }
 
 static const FarDialogItem VMenu2DialogItems[]
@@ -361,7 +366,6 @@ VMenu2::VMenu2(private_tag, int MaxHeight):
 	m_Y1(-1),
 	m_X2(0),
 	m_Y2(0),
-	ShortBox(false),
 	DefRec(),
 	InsideCall(0),
 	NeedResize(false),
@@ -403,7 +407,7 @@ vmenu2_ptr VMenu2::create(const string& Title, span<const menu_item> const Data,
 void VMenu2::SetTitle(const string& Title)
 {
 	FarListTitles titles={sizeof(FarListTitles)};
-	string t=GetMenuTitle(true);
+	const auto t = GetMenuTitle(true);
 	titles.Bottom=t.c_str();
 	titles.Title=Title.c_str();
 	SendMessage(DM_LISTSETTITLES, 0, &titles);
@@ -412,7 +416,7 @@ void VMenu2::SetTitle(const string& Title)
 void VMenu2::SetBottomTitle(const string& Title)
 {
 	FarListTitles titles={sizeof(FarListTitles)};
-	string t=GetMenuTitle();
+	const auto t = GetMenuTitle();
 	titles.Bottom=Title.c_str();
 	titles.Title=t.c_str();
 	SendMessage(DM_LISTSETTITLES, 0, &titles);
@@ -433,15 +437,17 @@ void VMenu2::SetMenuFlags(DWORD Flags)
 		fdi.Flags|=DIF_LISTAUTOHIGHLIGHT;
 	if(Flags&VMENU_SHOWNOBOX)
 		fdi.Flags|=DIF_LISTNOBOX;
+	if (Flags&VMENU_NOMERGEBORDER)
+		fdi.Flags|=DIF_LISTNOMERGEBORDER;
 
 	ListBox().SetMenuFlags(Flags & (VMENU_REVERSEHIGHLIGHT | VMENU_LISTSINGLEBOX));
 
 	SendMessage(DM_SETDLGITEMSHORT, 0, &fdi);
 }
 
-void VMenu2::AssignHighlights(int Reverse)
+void VMenu2::AssignHighlights(bool Reverse)
 {
-	SetMenuFlags(Reverse? VMENU_REVERSEHIGHLIGHT | VMENU_AUTOHIGHLIGHT : VMENU_AUTOHIGHLIGHT);
+	SetMenuFlags(VMENU_AUTOHIGHLIGHT | (Reverse? VMENU_REVERSEHIGHLIGHT : VMENU_NONE));
 }
 
 void VMenu2::clear()
@@ -462,7 +468,7 @@ int VMenu2::AddItem(const MenuItemEx& NewItem, int PosAdd)
 {
 	// BUGBUG
 
-	int n = static_cast<int>(size());
+	const auto n = static_cast<int>(size());
 	if(PosAdd<0)
 		PosAdd=0;
 	if(PosAdd>n)
@@ -484,13 +490,13 @@ int VMenu2::AddItem(const MenuItemEx& NewItem, int PosAdd)
 }
 int VMenu2::AddItem(const FarList *NewItem)
 {
-	int r=SendMessage(DM_LISTADD, 0, const_cast<FarList*>(NewItem));
+	const auto r = SendMessage(DM_LISTADD, 0, const_cast<FarList*>(NewItem));
 	Resize();
 	return r;
 }
 int VMenu2::AddItem(const string& NewStrItem)
 {
-	int r=SendMessage(DM_LISTADDSTR, 0, UNSAFE_CSTR(NewStrItem));
+	const auto r = SendMessage(DM_LISTADDSTR, 0, UNSAFE_CSTR(NewStrItem));
 	Resize();
 	return r;
 }
@@ -524,33 +530,33 @@ int VMenu2::SetSelectPos(int Pos, int Direct)
 	return ListBox().SetSelectPos(Pos, Direct);
 }
 
-int VMenu2::GetCheck(int Position)
+wchar_t VMenu2::GetCheck(int Position)
 {
-	LISTITEMFLAGS Flags=GetItemFlags(Position);
+	const auto Flags = GetItemFlags(Position);
 
 	if ((Flags & LIF_SEPARATOR) || !(Flags & LIF_CHECKED))
 		return 0;
 
-	int Checked = Flags & 0xFFFF;
+	const auto Checked = Flags & std::numeric_limits<wchar_t>::max();
 
 	return Checked ? Checked : 1;
 }
 
 void VMenu2::SetCheck(int Position)
 {
-	const auto Flags = GetItemFlags(Position) & ~0xFFFF;
+	const auto Flags = GetItemFlags(Position) & ~std::numeric_limits<wchar_t>::max();
 	UpdateItemFlags(Position, Flags | LIF_CHECKED);
 }
 
 void VMenu2::SetCustomCheck(wchar_t Char, int Position)
 {
-	const auto Flags = GetItemFlags(Position) & ~0xFFFF;
+	const auto Flags = GetItemFlags(Position) & ~std::numeric_limits<wchar_t>::max();
 	UpdateItemFlags(Position, Flags | LIF_CHECKED | Char);
 }
 
 void VMenu2::ClearCheck(int Position)
 {
-	const auto Flags = GetItemFlags(Position) & ~0xFFFF;
+	const auto Flags = GetItemFlags(Position) & ~std::numeric_limits<wchar_t>::max();
 	UpdateItemFlags(Position, Flags & ~LIF_CHECKED);
 }
 
@@ -709,10 +715,39 @@ bool VMenu2::ProcessMouse(const MOUSE_EVENT_RECORD *MouseEvent)
 
 void VMenu2::SetBoxType(int BoxType)
 {
-	ShortBox=(BoxType==SHORT_SINGLE_BOX || BoxType==SHORT_DOUBLE_BOX || BoxType==NO_BOX);
-	if(BoxType==NO_BOX)
+	if (BoxType == NO_BOX)
+	{
+		m_BoxType = box_type::none;
 		SetMenuFlags(VMENU_SHOWNOBOX);
-	if(BoxType==SINGLE_BOX || BoxType==SHORT_SINGLE_BOX)
+	}
+	else if (BoxType == SHORT_SINGLE_BOX || BoxType == SHORT_DOUBLE_BOX)
+	{
+		m_BoxType = box_type::thin;
+	}
+	else
+	{
+		m_BoxType = box_type::full;
+	}
+
+	if (BoxType == SINGLE_BOX || BoxType == SHORT_SINGLE_BOX)
 		SetMenuFlags(VMENU_LISTSINGLEBOX);
+
 	Resize();
+}
+
+intptr_t VMenu2::SendMessage(intptr_t Msg,intptr_t Param1,void* Param2)
+{
+	switch (Msg)
+	{
+		case DM_RESIZEDIALOG:
+		{
+			const auto fixSize = [](short& Size, short const Min) { Size = std::max(Min, Size); };
+			const auto MarginsX = (m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 1 : 3) * 2;
+			const auto MarginsY = (m_BoxType == box_type::none? 0 : m_BoxType == box_type::thin? 1 : 2) * 2;
+			fixSize(static_cast<COORD*>(Param2)->X, MarginsX + 1);
+			fixSize(static_cast<COORD*>(Param2)->Y, MarginsY + (GetShowItemCount()? 1 : 0));
+			break;
+		}
+	}
+	return Dialog::SendMessage(Msg,Param1,Param2);
 }

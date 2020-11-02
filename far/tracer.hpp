@@ -39,6 +39,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Common:
 #include "common/function_ref.hpp"
 #include "common/noncopyable.hpp"
+#include "common/range.hpp"
 
 // External:
 
@@ -47,35 +48,28 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class tracer: noncopyable
 {
 public:
-	static EXCEPTION_POINTERS get_pointers();
-	static std::vector<const void*> get(const EXCEPTION_POINTERS& Pointers, HANDLE ThreadHandle);
-	static void get_symbols(const std::vector<const void*>& Trace, function_ref<void(string&& Address, string&& Name, string&& Source)> Consumer);
-	static void get_symbol(const void* Ptr, string& Address, string& Name, string& Source);
+	static std::vector<DWORD64> get(string_view Module, const EXCEPTION_POINTERS& Pointers, HANDLE ThreadHandle);
+	static void get_symbols(string_view Module, span<DWORD64 const> Trace, function_ref<void(string&& Line)> Consumer);
+	static void get_symbol(string_view Module, const void* Ptr, string& Address, string& Name, string& Source);
 
-	static auto with_symbols()
+	class with_symbols
 	{
-		class with_symbols_t
+	public:
+		NONCOPYABLE(with_symbols);
+
+		with_symbols(string_view const Module)
 		{
-		public:
-			NONCOPYABLE(with_symbols_t);
-			MOVE_CONSTRUCTIBLE(with_symbols_t);
+			sym_initialise(Module);
+		}
 
-			with_symbols_t()
-			{
-				sym_initialise();
-			}
-
-			~with_symbols_t()
-			{
-				sym_cleanup();
-			}
-		};
-
-		return with_symbols_t{};
-	}
+		~with_symbols()
+		{
+			sym_cleanup();
+		}
+	};
 
 private:
-	static void sym_initialise();
+	static void sym_initialise(string_view Module);
 	static void sym_cleanup();
 };
 

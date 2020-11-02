@@ -31,13 +31,15 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "execute.hpp"
 
 // Internal:
 #include "keyboard.hpp"
 #include "ctrlobj.hpp"
-#include "chgprior.hpp"
 #include "cmdline.hpp"
 #include "encoding.hpp"
 #include "imports.hpp"
@@ -55,6 +57,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "RegExp.hpp"
 #include "scrbuf.hpp"
 #include "global.hpp"
+#include "keys.hpp"
 
 // Platform:
 #include "platform.env.hpp"
@@ -63,6 +66,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/enum_tokens.hpp"
+#include "common/io.hpp"
 #include "common/scope_exit.hpp"
 
 // External:
@@ -77,23 +81,21 @@ enum class image_type
 	graphical,
 };
 
-static bool GetImageType(const string& FileName, image_type& ImageType)
+static string short_name_if_too_long(const string& LongName)
 {
-	const os::fs::file ModuleFile(FileName, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING);
-	if (!ModuleFile)
-		return false;
+	return LongName.size() >= MAX_PATH - 1? ConvertNameToShort(LongName) : LongName;
+}
 
+static bool GetImageType(std::istream& Stream, image_type& ImageType)
+{
 	IMAGE_DOS_HEADER DOSHeader;
-	size_t ReadSize;
-
-	if (!ModuleFile.Read(&DOSHeader, sizeof(DOSHeader), ReadSize) || ReadSize != sizeof(DOSHeader))
+	if (io::read(Stream, edit_bytes(DOSHeader)) != sizeof(DOSHeader))
 		return false;
 
 	if (DOSHeader.e_magic != IMAGE_DOS_SIGNATURE)
 		return false;
 
-	if (!ModuleFile.SetPointer(DOSHeader.e_lfanew, nullptr, FILE_BEGIN))
-		return false;
+	Stream.seekg(DOSHeader.e_lfanew);
 
 	union
 	{
@@ -113,7 +115,7 @@ static bool GetImageType(const string& FileName, image_type& ImageType)
 	}
 	ImageHeader;
 
-	if (!ModuleFile.Read(&ImageHeader, sizeof(ImageHeader), ReadSize) || ReadSize != sizeof(ImageHeader))
+	if (io::read(Stream, edit_bytes(ImageHeader)) != sizeof(ImageHeader))
 		return false;
 
 	auto Result = image_type::console;
@@ -122,25 +124,25 @@ static bool GetImageType(const string& FileName, image_type& ImageType)
 	{
 		const auto& PeHeader = ImageHeader.PeHeader;
 
-		if (!(PeHeader.FileHeader.Characteristics & IMAGE_FILE_DLL))
+		if (PeHeader.FileHeader.Characteristics & IMAGE_FILE_DLL)
+			return false;
+
+		auto ImageSubsystem = IMAGE_SUBSYSTEM_UNKNOWN;
+
+		switch (PeHeader.OptionalHeader32.Magic)
 		{
-			auto ImageSubsystem = IMAGE_SUBSYSTEM_UNKNOWN;
+		case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
+			ImageSubsystem = PeHeader.OptionalHeader32.Subsystem;
+			break;
 
-			switch (PeHeader.OptionalHeader32.Magic)
-			{
-			case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
-				ImageSubsystem = PeHeader.OptionalHeader32.Subsystem;
-				break;
+		case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
+			ImageSubsystem = PeHeader.OptionalHeader64.Subsystem;
+			break;
+		}
 
-			case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-				ImageSubsystem = PeHeader.OptionalHeader64.Subsystem;
-				break;
-			}
-
-			if (ImageSubsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI)
-			{
-				Result = image_type::graphical;
-			}
+		if (ImageSubsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI)
+		{
+			Result = image_type::graphical;
 		}
 	}
 	else if (ImageHeader.Os2Header.ne_magic == IMAGE_OS2_SIGNATURE)
@@ -148,18 +150,18 @@ static bool GetImageType(const string& FileName, image_type& ImageType)
 		const auto& Os2Header = ImageHeader.Os2Header;
 
 		enum { DllOrDriverFlag = 7_bit };
-		if (!(HIBYTE(Os2Header.ne_flags) & DllOrDriverFlag))
-		{
-			enum
-			{
-				NE_WINDOWS = 0x2,
-				NE_WIN386 = 0x4,
-			};
+		if (HIBYTE(Os2Header.ne_flags) & DllOrDriverFlag)
+			return false;
 
-			if (Os2Header.ne_exetyp == NE_WINDOWS || Os2Header.ne_exetyp == NE_WIN386)
-			{
-				Result = image_type::graphical;
-			}
+		enum
+		{
+			NE_WINDOWS = 1_bit,
+			NE_WIN386  = 2_bit,
+		};
+
+		if (Os2Header.ne_exetyp == NE_WINDOWS || Os2Header.ne_exetyp == NE_WIN386)
+		{
+			Result = image_type::graphical;
 		}
 	}
 
@@ -167,7 +169,27 @@ static bool GetImageType(const string& FileName, image_type& ImageType)
 	return true;
 }
 
-static bool IsProperProgID(const string& ProgID)
+static bool GetImageType(string_view const FileName, image_type& ImageType)
+{
+	const os::fs::file ModuleFile(FileName, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING);
+	if (!ModuleFile)
+		return false;
+
+	try
+	{
+		os::fs::filebuf StreamBuffer(ModuleFile, std::ios::in);
+		std::istream Stream(&StreamBuffer);
+		Stream.exceptions(Stream.badbit | Stream.failbit);
+		return GetImageType(Stream, ImageType);
+
+	}
+	catch (const std::exception&)
+	{
+		return false;
+	}
+}
+
+static bool IsProperProgID(string_view const ProgID)
 {
 	return !ProgID.empty() && os::reg::key::open(os::reg::key::classes_root, ProgID, KEY_QUERY_VALUE);
 }
@@ -177,17 +199,15 @@ static bool IsProperProgID(const string& ProgID)
 hExtKey - корневой ключ для поиска (ключ расширения)
 strType - сюда запишется результат, если будет найден
 */
-static bool SearchExtHandlerFromList(const os::reg::key& ExtKey, string& strType)
+static string SearchExtHandlerFromList(const os::reg::key& ExtKey)
 {
-	for (const auto& i: os::reg::enum_value(ExtKey, L"OpenWithProgIds"sv, KEY_ENUMERATE_SUB_KEYS))
+	const auto Enumerator = os::reg::enum_value(ExtKey, L"OpenWithProgIds"sv, KEY_ENUMERATE_SUB_KEYS);
+	const auto Iterator = std::find_if(ALL_CONST_RANGE(Enumerator), [](const os::reg::value& i)
 	{
-		if (i.type() == REG_SZ && IsProperProgID(i.name()))
-		{
-			strType = i.name();
-			return true;
-		}
-	}
-	return false;
+			return i.type() == REG_SZ && IsProperProgID(i.name());
+	});
+
+	return Iterator != Enumerator.cend()? Iterator->name() : L""s;
 }
 
 static bool FindObject(string_view const Module, string& strDest, bool* Internal)
@@ -195,7 +215,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 	if (Module.empty())
 		return false;
 
-	const auto ModuleExt = PointToExt(Module);
+	const auto ModuleExt = name_ext(Module).second;
 	const auto PathExtList = enum_tokens(lower(os::env::get_pathext()), L";"sv);
 
 	const auto TryWithExtOrPathExt = [&](string_view const Name, const auto& Predicate)
@@ -222,7 +242,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 		// If you really want to look for files w/o extension - add ";;" to the %PATHEXT%.
 		// return Predicate(Name);
 
-		return std::make_pair(false, L""s);
+		return std::pair(false, L""s);
 	};
 
 	if (IsAbsolutePath(Module))
@@ -231,7 +251,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 		// Just try all the extensions and we are done here:
 		const auto [Found, FoundName] = TryWithExtOrPathExt(Module, [](string_view const NameWithExt)
 		{
-			return std::make_pair(os::fs::is_file(NameWithExt), string(NameWithExt));
+			return std::pair(os::fs::is_file(NameWithExt), string(NameWithExt));
 		});
 
 		if (Found)
@@ -258,7 +278,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 		const auto FullName = ConvertNameToFull(Module);
 		const auto[Found, FoundName] = TryWithExtOrPathExt(FullName, [](string_view const NameWithExt)
 		{
-			return std::make_pair(os::fs::is_file(NameWithExt), string(NameWithExt));
+			return std::pair(os::fs::is_file(NameWithExt), string(NameWithExt));
 		});
 
 		if (Found)
@@ -280,7 +300,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 
 				const auto[Found, FoundName] = TryWithExtOrPathExt(path::join(Path, Module), [](string_view const NameWithExt)
 				{
-					return std::make_pair(os::fs::is_file(NameWithExt), string(NameWithExt));
+					return std::pair(os::fs::is_file(NameWithExt), string(NameWithExt));
 				});
 
 				if (Found)
@@ -297,7 +317,7 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 		const auto[Found, FoundName] = TryWithExtOrPathExt(Module, [](string_view const NameWithExt)
 		{
 			string Str;
-			return std::make_pair(os::fs::SearchPath(nullptr, NameWithExt, nullptr, Str), Str);
+			return std::pair(os::fs::SearchPath(nullptr, NameWithExt, nullptr, Str) && !os::fs::is_directory(Str), Str);
 		});
 
 		if (Found)
@@ -336,10 +356,10 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 					if (RootFindKey[i]->get(NameWithExt, {}, RealName, samDesired))
 					{
 						RealName = unquote(os::env::expand(RealName));
-						return std::make_pair(os::fs::is_file(RealName), RealName);
+						return std::pair(os::fs::is_file(RealName), RealName);
 					}
 
-					return std::make_pair(false, L""s);
+					return std::pair(false, L""s);
 				});
 
 				if (Found)
@@ -356,9 +376,9 @@ static bool FindObject(string_view const Module, string& strDest, bool* Internal
 
 /*
  true: ok, found command & arguments.
- false: it's too complex, let's comspec deal with it.
+ false: it's too complex, let comspec deal with it.
 */
-static bool PartCmdLine(const string& CmdStr, string& strNewCmdStr, string& strNewCmdPar)
+static bool PartCmdLine(string_view const CmdStr, string& strNewCmdStr, string& strNewCmdPar)
 {
 	auto UseDefaultCondition = true;
 
@@ -377,7 +397,7 @@ static bool PartCmdLine(const string& CmdStr, string& strNewCmdStr, string& strN
 		if (Re.Pattern != Condition)
 		{
 			Re.Re = std::make_unique<RegExp>();
-			if (!Re.Re->Compile(Condition.c_str(), OP_OPTIMIZE))
+			if (!Re.Re->Compile(Condition, OP_OPTIMIZE))
 			{
 				Re.Re.reset();
 			}
@@ -439,7 +459,7 @@ static bool PartCmdLine(const string& CmdStr, string& strNewCmdStr, string& strN
 
 static bool RunAsSupported(const wchar_t* Name)
 {
-	const auto Extension = PointToExt(Name);
+	const auto Extension = name_ext(Name).second;
 	string Type;
 	return !Extension.empty() &&
 		GetShellType(Extension, Type) &&
@@ -510,7 +530,7 @@ static string GetShellActionForType(string_view const TypeName, string& KeyName)
 
 static string GetShellTypeFromExtension(string_view const FileName)
 {
-	auto Ext = PointToExt(FileName);
+	auto Ext = name_ext(FileName).second;
 	if (Ext.empty())
 	{
 		// Yes, no matter how mad it looks - it is possible to specify actions for empty extension too
@@ -614,7 +634,7 @@ bool GetShellType(const string_view Ext, string& strType, const ASSOCIATIONTYPE 
 			return true;
 		}
 
-		os::reg::key CRKey, UserKey;
+		os::reg::key UserKey;
 		string strFoundValue;
 
 		if (aType == AT_FILEEXTENSION)
@@ -629,8 +649,9 @@ bool GetShellType(const string_view Ext, string& strType, const ASSOCIATIONTYPE 
 			}
 		}
 
+		os::reg::key CRKey;
 		// Смотрим дефолтный обработчик расширения в HKEY_CLASSES_ROOT
-		if (strType.empty() && (CRKey = os::reg::key::open(os::reg::key::classes_root, Ext, KEY_QUERY_VALUE)))
+		if (strType.empty() && ((CRKey = os::reg::key::open(os::reg::key::classes_root, Ext, KEY_QUERY_VALUE))))
 		{
 			if (CRKey.get({}, strFoundValue) && IsProperProgID(strFoundValue))
 			{
@@ -639,16 +660,16 @@ bool GetShellType(const string_view Ext, string& strType, const ASSOCIATIONTYPE 
 		}
 
 		if (strType.empty() && UserKey)
-			SearchExtHandlerFromList(UserKey, strType);
+			strType = SearchExtHandlerFromList(UserKey);
 
 		if (strType.empty() && CRKey)
-			SearchExtHandlerFromList(CRKey, strType);
+			strType = SearchExtHandlerFromList(CRKey);
 	}
 
 	return !strType.empty();
 }
 
-void OpenFolderInShell(const string& Folder)
+void OpenFolderInShell(string_view const Folder)
 {
 	execute_info Info;
 	Info.DisplayCommand = Folder;
@@ -656,8 +677,9 @@ void OpenFolderInShell(const string& Folder)
 	Info.NewWindow = true;
 	Info.ExecMode = execute_info::exec_mode::direct;
 	Info.SourceMode = execute_info::source_mode::known;
+	Info.Silent = true;
 
-	Execute(Info, true, true);
+	Execute(Info, true);
 }
 
 static bool GetAssociatedImageTypeForBatCmd(string_view const Str, image_type& ImageType)
@@ -709,7 +731,7 @@ static bool GetAssociatedImageType(string_view const FileName, image_type& Image
 
 static bool GetProtocolType(string_view const Str, image_type& ImageType)
 {
-	auto Unquoted = unquote(string(Str));
+	const auto Unquoted = unquote(Str);
 	const auto SemicolonPos = Unquoted.find(L':');
 	if (!SemicolonPos || SemicolonPos == 1 || SemicolonPos == Str.npos)
 		return false;
@@ -734,7 +756,115 @@ static bool GetProtocolType(string_view const Str, image_type& ImageType)
 	return false;
 }
 
-void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(bool)> const ConsoleActivator)
+static void wait_for_process_or_detach(os::handle const& Process, int const ConsoleDetachKey, point const& ConsoleSize, rectangle const& ConsoleWindowRect)
+{
+	const auto
+		hInput = console.GetInputHandle(),
+		hOutput = console.GetOutputHandle();
+
+	const auto ConfigVKey = TranslateKeyToVK(ConsoleDetachKey);
+
+	enum class dual_key_t
+	{
+		none,
+		right,
+		any
+	};
+
+	const auto dual_key = [](DWORD const Mask, const DWORD Left, const DWORD Right)
+	{
+		return Mask & Left? dual_key_t::any : Mask & Right? dual_key_t::right : dual_key_t::none;
+	};
+
+	const auto match = [](dual_key_t Expected, dual_key_t Actual)
+	{
+		return Expected == dual_key_t::any? Actual != dual_key_t::none : Expected == Actual;
+	};
+
+	const auto
+		ConfigCtrl  = dual_key(ConsoleDetachKey, KEY_CTRL,  KEY_RCTRL),
+		ConfigAlt   = dual_key(ConsoleDetachKey, KEY_ALT,   KEY_RALT),
+		ConfigShift = dual_key(ConsoleDetachKey, KEY_SHIFT, KEY_RSHIFT);
+
+	const auto is_detach_key = [&](INPUT_RECORD const& i)
+	{
+		if (i.EventType != KEY_EVENT)
+			return false;
+
+		const auto ControlKeyState = i.Event.KeyEvent.dwControlKeyState;
+
+		const auto
+			Ctrl  = dual_key(ControlKeyState, LEFT_CTRL_PRESSED, RIGHT_CTRL_PRESSED),
+			Alt   = dual_key(ControlKeyState, LEFT_ALT_PRESSED,  RIGHT_ALT_PRESSED),
+			Shift = dual_key(ControlKeyState, SHIFT_PRESSED,     SHIFT_PRESSED); // BUGBUG
+
+		return ConfigVKey == i.Event.KeyEvent.wVirtualKeyCode && match(ConfigCtrl, Ctrl) && match(ConfigAlt, Alt) && match(ConfigShift, Shift);
+	};
+
+	std::vector<INPUT_RECORD> Buffer(256);
+
+	//Тут нельзя делать WaitForMultipleObjects из за бага в Win7 при работе в телнет
+	while (!Process.is_signaled(100ms))
+	{
+		const auto NumberOfEvents = []
+		{
+			size_t Result;
+			return console.GetNumberOfInputEvents(Result)? Result : 0;
+		}();
+
+		if (Buffer.size() < NumberOfEvents)
+		{
+			Buffer.clear();
+			Buffer.resize(NumberOfEvents + NumberOfEvents / 2);
+		}
+
+		if (!os::handle::is_signaled(hInput, 100ms))
+			continue;
+
+		size_t EventsRead;
+		if (!console.PeekInput(Buffer, EventsRead) || !EventsRead)
+			continue;
+
+		if (std::none_of(Buffer.cbegin(), Buffer.cbegin() + EventsRead, is_detach_key))
+			continue;
+
+		const auto Aliases = console.GetAllAliases();
+
+		consoleicons::instance().restore_icon();
+
+		console.FlushInputBuffer();
+		ClearKeyQueue();
+
+		/*
+		  Не будем вызывать CloseConsole, потому, что она поменяет
+		  ConsoleMode на тот, что был до запуска Far'а,
+		  чего работающее приложение могло и не ожидать.
+		*/
+
+		os::handle{ hInput };
+		os::handle{ hOutput };
+
+		console.Free();
+		console.Allocate();
+
+		if (const auto Window = console.GetWindow())   // если окно имело HOTKEY, то старое должно его забыть.
+			SendMessage(Window, WM_SETHOTKEY, 0, 0);
+
+		console.SetSize(ConsoleSize);
+		console.SetWindowRect(ConsoleWindowRect);
+		console.SetSize(ConsoleSize);
+
+		os::chrono::sleep_for(100ms);
+		InitConsole();
+
+		consoleicons::instance().set_icon();
+		console.SetAllAliases(Aliases);
+
+		return;
+	}
+}
+
+void Execute(execute_info& Info, bool FolderRun, function_ref<void(bool)> const ConsoleActivator)
 {
 	bool Result = false;
 	string strNewCmdStr;
@@ -752,7 +882,7 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 
 			if (ImageType == image_type::graphical)
 			{
-				Silent = true;
+				Info.Silent = true;
 				Info.NewWindow = true;
 			}
 		}
@@ -782,12 +912,12 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 
 	if(FolderRun)
 	{
-		Silent = true;
+		Info.Silent = true;
 	}
 
 	if (Info.NewWindow)
 	{
-		Silent = true;
+		Info.Silent = true;
 
 		const auto Unquoted = unquote(strNewCmdStr);
 		IsDirectory = os::fs::is_directory(Unquoted);
@@ -879,7 +1009,7 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 
 					if (ImageType == image_type::graphical)
 					{
-						Silent = true;
+						Info.Silent = true;
 						Info.NewWindow = true;
 					}
 				}
@@ -895,35 +1025,30 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 	if (Info.WaitMode == execute_info::wait_mode::wait_finish)
 	{
 		// It's better to show console rather than non-responding panels
-		Silent = false;
+		Info.Silent = false;
 	}
 
 	bool Visible=false;
 	DWORD CursorSize=0;
-	SMALL_RECT ConsoleWindowRect;
-	COORD ConsoleSize={};
+	rectangle ConsoleWindowRect;
+	point ConsoleSize;
 	int ConsoleCP = CP_OEMCP;
 	int ConsoleOutputCP = CP_OEMCP;
 
-	SCOPED_ACTION(ChangePriority)(THREAD_PRIORITY_NORMAL);
 
 	SHELLEXECUTEINFO seInfo={sizeof(seInfo)};
 
-	auto strCurDir = os::fs::GetCurrentDirectory();
-	if (strCurDir.size() >= MAX_PATH - 1)
-	{
-		strCurDir = ConvertNameToShort(strCurDir);
-	}
+	const auto strCurDir = short_name_if_too_long(os::fs::GetCurrentDirectory());
 
 	seInfo.lpDirectory = strCurDir.c_str();
 	seInfo.nShow = SW_SHOWNORMAL;
 
 	if (ConsoleActivator)
 	{
-		ConsoleActivator(!Silent);
+		ConsoleActivator(!Info.Silent);
 	}
 
-	if(!Silent)
+	if(!Info.Silent)
 	{
 		ConsoleCP = console.GetInputCodepage();
 		ConsoleOutputCP = console.GetOutputCodepage();
@@ -962,7 +1087,9 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 
 	if (Info.ExecMode == execute_info::exec_mode::direct)
 	{
+		strNewCmdStr = short_name_if_too_long(strNewCmdStr);
 		seInfo.lpFile = strNewCmdStr.c_str();
+
 		if(!strNewCmdPar.empty())
 		{
 			seInfo.lpParameters = strNewCmdPar.c_str();
@@ -1023,13 +1150,7 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 		std::optional<os::fs::process_current_directory_guard> Guard;
 		if (os::fs::file_status(strCurDir).check(FILE_ATTRIBUTE_REPARSE_POINT))
 		{
-			auto RealDir = ConvertNameToReal(strCurDir);
-			if (RealDir.size() >= MAX_PATH - 1)
-			{
-				RealDir = ConvertNameToShort(RealDir);
-			}
-
-			Guard.emplace(RealDir);
+			Guard.emplace(short_name_if_too_long(ConvertNameToReal(strCurDir)));
 		}
 
 		Result = ShellExecuteEx(&seInfo) != FALSE;
@@ -1050,85 +1171,13 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 		{
 			if (Info.WaitMode == execute_info::wait_mode::wait_finish || !Info.NewWindow)
 			{
-				if (Global->Opt->ConsoleDetachKey.empty())
+				if (const auto ConsoleDetachKey = KeyNameToKey(Global->Opt->ConsoleDetachKey))
 				{
-					Process.wait();
+					wait_for_process_or_detach(Process, ConsoleDetachKey, ConsoleSize, ConsoleWindowRect);
 				}
 				else
 				{
-					/*$ 12.02.2001 SKV
-					  супер фитча ;)
-					  Отделение фаровской консоли от неинтерактивного процесса.
-					  Задаётся кнопкой в System/ConsoleDetachKey
-					*/
-					HANDLE hOutput = console.GetOutputHandle();
-					HANDLE hInput = console.GetInputHandle();
-					INPUT_RECORD ir[256];
-					size_t rd;
-					int vkey=0,ctrl=0;
-					TranslateKeyToVK(KeyNameToKey(Global->Opt->ConsoleDetachKey),vkey,ctrl,nullptr);
-					int alt=ctrl&(PKF_ALT|PKF_RALT);
-					int shift=ctrl&PKF_SHIFT;
-					ctrl=ctrl&(PKF_CONTROL|PKF_RCONTROL);
-
-					//Тут нельзя делать WaitForMultipleObjects из за бага в Win7 при работе в телнет
-					while (!Process.is_signaled(100ms))
-					{
-						if (WaitForSingleObject(hInput, 100)==WAIT_OBJECT_0 && console.PeekInput(ir, rd) && rd)
-						{
-							int stop=0;
-
-							for (const auto& i: span(ir, rd))
-							{
-								if (i.EventType==KEY_EVENT)
-								{
-									const auto dwControlKeyState = i.Event.KeyEvent.dwControlKeyState;
-									const auto bAlt = (dwControlKeyState & LEFT_ALT_PRESSED) || (dwControlKeyState & RIGHT_ALT_PRESSED);
-									const auto bCtrl = (dwControlKeyState & LEFT_CTRL_PRESSED) || (dwControlKeyState & RIGHT_CTRL_PRESSED);
-									const auto bShift = (dwControlKeyState & SHIFT_PRESSED)!=0;
-
-									if (vkey == i.Event.KeyEvent.wVirtualKeyCode &&
-									        (alt ?bAlt:!bAlt) &&
-									        (ctrl ?bCtrl:!bCtrl) &&
-									        (shift ?bShift:!bShift))
-									{
-										const auto Aliases = console.GetAllAliases();
-
-										consoleicons::instance().restorePreviousIcons();
-
-										console.ReadInput(ir, rd);
-										/*
-										  Не будем вызывать CloseConsole, потому, что она поменяет
-										  ConsoleMode на тот, что был до запуска Far'а,
-										  чего работающее приложение могло и не ожидать.
-										*/
-										CloseHandle(hInput);
-										CloseHandle(hOutput);
-										ClearKeyQueue();
-										console.Free();
-										console.Allocate();
-
-										if (const auto hWnd = console.GetWindow())   // если окно имело HOTKEY, то старое должно его забыть.
-											SendMessage(hWnd, WM_SETHOTKEY, 0, 0);
-
-										console.SetSize(ConsoleSize);
-										console.SetWindowRect(ConsoleWindowRect);
-										console.SetSize(ConsoleSize);
-										os::chrono::sleep_for(100ms);
-										InitConsole();
-
-										consoleicons::instance().setFarIcons();
-										console.SetAllAliases(Aliases);
-										stop=1;
-										break;
-									}
-								}
-							}
-
-							if (stop)
-								break;
-						}
-					}
+					Process.wait();
 				}
 			}
 			if(Info.WaitMode == execute_info::wait_mode::wait_idle)
@@ -1137,9 +1186,6 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 			}
 			Process.close();
 		}
-
-		Result = true;
-
 	}
 
 	SetFarConsoleMode(true);
@@ -1160,10 +1206,10 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 	console.SetCursorInfo(cci);
 
 	{
-		COORD ConSize;
-		if (console.GetSize(ConSize) && (ConSize.X != ScrX + 1 || ConSize.Y != ScrY + 1))
+		point ConSize;
+		if (console.GetSize(ConSize) && (ConSize.x != ScrX + 1 || ConSize.y != ScrY + 1))
 		{
-			ChangeVideoMode(ConSize.Y, ConSize.X);
+			ChangeVideoMode(ConSize.y, ConSize.x);
 		}
 	}
 
@@ -1173,7 +1219,7 @@ void Execute(execute_info& Info, bool FolderRun, bool Silent, function_ref<void(
 		console.SetOutputCodepage(ConsoleOutputCP);
 	}
 
-	if (!Result)
+	if (!Result && ErrorState.Win32Error != ERROR_CANCELLED)
 	{
 		std::vector<string> Strings;
 		if (Info.ExecMode == execute_info::exec_mode::direct)
@@ -1288,8 +1334,8 @@ static string_view PrepareOSIfExist(string_view const CmdLine, predicate IsExist
 		if (Command.empty())
 			break;
 
-		if ((IsExistToken? IsExists : IsDefined)(unquote(string(ExpressionStart.substr(0, ExpressionStart.size() - Command.size())))) == IsNot)
-			return L""sv;
+		if ((IsExistToken? IsExists : IsDefined)(unquote(ExpressionStart.substr(0, ExpressionStart.size() - Command.size()))) == IsNot)
+			return {};
 
 		SkippedSomethingValid = true;
 	}
@@ -1321,7 +1367,7 @@ bool ExtractIfExistCommand(string& strCommandText)
 
 bool IsExecutable(string_view const Filename)
 {
-	const auto Ext = PointToExt(Filename);
+	const auto Ext = name_ext(Filename).second;
 	if (Ext.empty())
 		return false;
 
@@ -1344,8 +1390,8 @@ bool ExpandOSAliases(string& strStr)
 		return false;
 
 	auto ExeName = PointToName(Global->g_strFarModuleName);
-	wchar_t_ptr Buffer(4096);
-	int ret = console.GetAlias(strNewCmdStr, Buffer.get(), Buffer.size() * sizeof(wchar_t), ExeName);
+	const wchar_t_ptr Buffer(4096);
+	int ret = console.GetAlias(strNewCmdStr, Buffer.data(), Buffer.size() * sizeof(wchar_t), ExeName);
 
 	if (!ret)
 	{
@@ -1353,14 +1399,14 @@ bool ExpandOSAliases(string& strStr)
 		if (!strComspec.empty())
 		{
 			ExeName=PointToName(strComspec);
-			ret = console.GetAlias(strNewCmdStr, Buffer.get(), Buffer.size() * sizeof(wchar_t), ExeName);
+			ret = console.GetAlias(strNewCmdStr, Buffer.data(), Buffer.size() * sizeof(wchar_t), ExeName);
 		}
 	}
 
 	if (!ret)
 		return false;
 
-	strNewCmdStr.assign(Buffer.get());
+	strNewCmdStr.assign(Buffer.data());
 
 	if (!ReplaceStrings(strNewCmdStr, L"$*"sv, strNewCmdPar) && !strNewCmdPar.empty())
 		append(strNewCmdStr, L' ', strNewCmdPar);
@@ -1384,12 +1430,12 @@ TEST_CASE("execute.exist.defined")
 	Tests[]
 	{
 		{
-			L""sv,
+			{},
 
-			L""sv, // ed
-			L""sv, // eD
-			L""sv, // Ed
-			L""sv, // ED
+			{}, // ed
+			{}, // eD
+			{}, // Ed
+			{}, // ED
 		},
 		{
 			L" "sv,
@@ -1410,50 +1456,50 @@ TEST_CASE("execute.exist.defined")
 		{
 			L"  if  exist  bar  foo"sv,
 
-			L""sv,    // ed
-			L""sv,    // eD
+			{},       // ed
+			{},       // eD
 			L"foo"sv, // Ed
 			L"foo"sv  // ED
 		},
 		{
 			L"  if  exist  bar  if  defined  ham  foo"sv,
 
-			L""sv,    // ed
-			L""sv,    // eD
-			L""sv,    // Ed
+			{},       // ed
+			{},       // eD
+			{},       // Ed
 			L"foo"sv, // ED
 		},
 		{
 			L"  if  exist  bar  if  not  defined  ham  foo"sv,
 
-			L""sv,    // ed
-			L""sv,    // eD
+			{},       // ed
+			{},       // eD
 			L"foo"sv, // Ed
-			L""sv,    // ED
+			{},       // ED
 		},
 		{
 			L"  if  not  exist  bar  foo"sv,
 
 			L"foo"sv, // ed
 			L"foo"sv, // eD
-			L""sv,    // Ed
-			L""sv,    // ED
+			{},       // Ed
+			{},       // ED
 		},
 		{
 			L"  if  not  exist  bar  if  defined  ham  foo"sv,
 
-			L""sv,    // ed
+			{},       // ed
 			L"foo"sv, // eD
-			L""sv,    // Ed
-			L""sv     // ED
+			{},       // Ed
+			{},       // ED
 		},
 		{
 			L"  if  not  exist  bar  if  not  defined  ham  foo"sv,
 
 			L"foo"sv, // ed
-			L""sv,    // eD
-			L""sv,    // Ed
-			L""sv     // ED
+			{},       // eD
+			{},       // Ed
+			{},       // ED
 		},
 	};
 

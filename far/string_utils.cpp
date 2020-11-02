@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "string_utils.hpp"
 
@@ -39,30 +42,21 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/preprocessor.hpp"
+#include "common/string_utils.hpp"
 #include "common/utility.hpp"
 
 // External:
 
 //----------------------------------------------------------------------------
 
-const string& GetSpaces()
+string_view GetSpaces()
 {
-	// TODO: test for consistency with IsSpace()
-	static const auto Spaces = L" \t"s;
-	return Spaces;
+	return L" \t"sv;
 }
 
-const string& GetEols()
+string_view GetEols()
 {
-	// TODO: test for consistency with IsEol()
-	static const auto Eols = L"\r\n"s;
-	return Eols;
-}
-
-const string& GetSpacesAndEols()
-{
-	static const auto SpacesOrEols = GetSpaces() + GetEols();
-	return SpacesOrEols;
+	return L"\r\n"sv;
 }
 
 bool is_alpha(wchar_t Char)
@@ -217,6 +211,55 @@ bool contains_icase(const string_view Str, wchar_t const What)
 
 #include "testing.hpp"
 
+TEST_CASE("string.spaces")
+{
+	for (const auto& i: GetSpaces())
+	{
+		REQUIRE(std::iswblank(i));
+	}
+}
+
+TEST_CASE("string.eols")
+{
+	for (const auto& i: GetEols())
+	{
+		REQUIRE(IsEol(i));
+	}
+}
+
+TEST_CASE("string.traits")
+{
+	REQUIRE(is_alpha(L'A'));
+	REQUIRE(!is_alpha(L'1'));
+
+	REQUIRE(is_alphanumeric(L'0'));
+	REQUIRE(!is_alphanumeric(L'?'));
+
+	REQUIRE(is_upper(L'A'));
+	REQUIRE(!is_upper(L'a'));
+
+	REQUIRE(is_lower(L'a'));
+	REQUIRE(!is_lower(L'A'));
+
+	REQUIRE(!is_upper(L'1'));
+	REQUIRE(!is_lower(L'1'));
+}
+
+TEST_CASE("string.case")
+{
+	REQUIRE(upper(L'a') == L'A');
+	REQUIRE(upper(L'A') == L'A');
+
+	REQUIRE(upper(L"foo"sv) == L"FOO"sv);
+	REQUIRE(upper(L"FOO"sv) == L"FOO"sv);
+
+	REQUIRE(lower(L'A') == L'a');
+	REQUIRE(lower(L'a') == L'a');
+
+	REQUIRE(lower(L"FOO"sv) == L"foo"sv);
+	REQUIRE(lower(L"foo"sv) == L"foo"sv);
+}
+
 TEST_CASE("string.utils")
 {
 	for (const auto& i: GetSpaces())
@@ -234,7 +277,9 @@ TEST_CASE("string.utils.hash")
 {
 	const hash_icase_t hash;
 	REQUIRE(hash(L'A') == hash(L'a'));
+	REQUIRE(hash(L'A') != hash(L'B'));
 	REQUIRE(hash(L"fooBAR"sv) == hash(L"FOObar"sv));
+	REQUIRE(hash(L"fooBAR"sv) != hash(L"Banana"sv));
 }
 
 TEST_CASE("string.utils.icase")
@@ -248,9 +293,9 @@ TEST_CASE("string.utils.icase")
 	}
 	Tests[]
 	{
-		{ L""sv,                 L""sv,             npos, },
-		{ L""sv,                 L"abc"sv,          npos, },
-		{ L"foobar"sv,           L""sv,             0,    },
+		{ {},                    {},                npos, },
+		{ {},                    L"abc"sv,          npos, },
+		{ L"foobar"sv,           {},                0,    },
 		{ L"foobar"sv,           L"FOOBAR"sv,       0,    },
 		{ L"foobar"sv,           L"foobar1"sv,      npos, },
 		{ L"foobar"sv,           L"foo"sv,          0,    },
@@ -259,10 +304,10 @@ TEST_CASE("string.utils.icase")
 		{ L"foobar"sv,           L"BaR"sv,          3,    },
 	};
 
-	for (const auto& Test: Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(find_icase(Test.Str, Test.Token) == Test.Pos);
-		REQUIRE(contains_icase(Test.Str, Test.Token) == (Test.Pos != npos));
+		REQUIRE(find_icase(i.Str, i.Token) == i.Pos);
+		REQUIRE(contains_icase(i.Str, i.Token) == (i.Pos != npos));
 	}
 }
 #endif

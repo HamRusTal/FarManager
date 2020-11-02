@@ -31,13 +31,15 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "setattr.hpp"
 
 // Internal:
 #include "flink.hpp"
 #include "dialog.hpp"
-#include "chgprior.hpp"
 #include "scantree.hpp"
 #include "filepanels.hpp"
 #include "panel.hpp"
@@ -55,7 +57,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "network.hpp"
 #include "fileowner.hpp"
 #include "wakeful.hpp"
-#include "DlgGuid.hpp"
+#include "uuids.far.dialogs.hpp"
 #include "interf.hpp"
 #include "plugins.hpp"
 #include "imports.hpp"
@@ -125,6 +127,8 @@ enum SETATTRDLG
 	SA_BUTTON_SET,
 	SA_BUTTON_SYSTEMDLG,
 	SA_BUTTON_CANCEL,
+
+	SA_COUNT
 };
 
 constexpr size_t main_attributes_count = SA_ATTR_LAST - SA_ATTR_FIRST + 1;
@@ -161,7 +165,7 @@ enum DIALOGMODE
 static const struct
 {
 	int Id;
-	DWORD Attribute;
+	os::fs::attributes Attribute;
 	lng LngId;
 }
 AttributeMap[]
@@ -255,7 +259,7 @@ struct SetAttrDlgParam
 
 static void convert_date(os::chrono::time_point const TimePoint, string& Date, string& Time)
 {
-	ConvertDate(TimePoint, Date, Time, 17, 2);
+	ConvertDate(TimePoint, Date, Time, 16, 2);
 }
 
 static void set_date_or_time(Dialog* const Dlg, int const Id, string const& Value, bool const MakeUnchanged)
@@ -300,7 +304,7 @@ static void AdvancedAttributesDialog(SetAttrDlgParam* const DlgParam)
 		const auto AbsoluteIndex = main_attributes_count + i;
 		auto& Attr = DlgParam->Attributes[main_attributes_count + i];
 		SavedState[i] = Attr.CurrentValue;
-		Builder.AddCheckbox(AttributeMap[AbsoluteIndex].LngId, &Attr.CurrentValue, 0, flags::check_any(Attr.Flags, DIF_3STATE));
+		Builder.AddCheckbox(AttributeMap[AbsoluteIndex].LngId, Attr.CurrentValue, 0, flags::check_any(Attr.Flags, DIF_3STATE));
 	}
 
 	Builder.AddOKCancel();
@@ -358,20 +362,20 @@ static intptr_t SetAttrDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,void* Pa
 			// Works in 2 modes: single directory or multiple selection
 			for(auto& i: DlgParam->Attributes)
 			{
-				if (SubfoldersState)
-				{
-					i.Flags |= DIF_3STATE;
-
-					if (!i.ChangedManually)
-						i.CurrentValue = BSTATE_3STATE;
-				}
-				else
+				if (SubfoldersState == BSTATE_UNCHECKED)
 				{
 					if (DlgParam->DialogMode == MODE_FOLDER)
 						i.Flags &= ~DIF_3STATE;
 
 					if (!i.ChangedManually)
 						i.CurrentValue = i.InitialValue;
+				}
+				else
+				{
+					i.Flags |= DIF_3STATE;
+
+					if (!i.ChangedManually)
+						i.CurrentValue = BSTATE_3STATE;
 				}
 			}
 
@@ -390,7 +394,7 @@ static intptr_t SetAttrDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,void* Pa
 					{
 						if (!Component.ChangedManually)
 						{
-							set_date_or_time(Dlg, Id, SubfoldersState? L""s : Component.InitialValue, true);
+							set_date_or_time(Dlg, Id, SubfoldersState == BSTATE_UNCHECKED? Component.InitialValue : L""s, true);
 							Component.ChangedManually = false;
 						}
 					};
@@ -402,7 +406,7 @@ static intptr_t SetAttrDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,void* Pa
 
 			if (!DlgParam->Owner.ChangedManually)
 			{
-				Dlg->SendMessage(DM_SETTEXTPTR, SA_EDIT_OWNER, SubfoldersState? nullptr : UNSAFE_CSTR(DlgParam->Owner.InitialValue));
+				Dlg->SendMessage(DM_SETTEXTPTR, SA_EDIT_OWNER, SubfoldersState == BSTATE_UNCHECKED? UNSAFE_CSTR(DlgParam->Owner.InitialValue) : nullptr);
 				DlgParam->Owner.ChangedManually = false;
 			}
 		}
@@ -506,7 +510,7 @@ static intptr_t SetAttrDlgProc(Dialog* Dlg,intptr_t Msg,intptr_t Param1,void* Pa
 			if (!std::any_of(ALL_CONST_RANGE(TimeMap), [&](const auto& i) { return i.DateId == Param1; }))
 				break;
 
-			if (locale.date_format() != 2)
+			if (locale.date_format() != date_type::ymd)
 				break;
 
 			if (reinterpret_cast<const wchar_t*>(Dlg->SendMessage(DM_GETCONSTTEXTPTR, Param1, nullptr))[0] != L' ')
@@ -541,7 +545,7 @@ struct AttrPreRedrawItem : public PreRedrawItem
 	string Name;
 };
 
-static void ShellSetFileAttributesMsgImpl(const string& Name)
+static void ShellSetFileAttributesMsgImpl(string_view const Name)
 {
 	static int Width=54;
 	int WidthTemp;
@@ -563,7 +567,7 @@ static void ShellSetFileAttributesMsgImpl(const string& Name)
 		{});
 }
 
-static void ShellSetFileAttributesMsg(const string& Name)
+static void ShellSetFileAttributesMsg(string_view const Name)
 {
 	ShellSetFileAttributesMsgImpl(Name);
 
@@ -584,31 +588,14 @@ static void PR_ShellSetFileAttributesMsg()
 static bool construct_time(
 	os::chrono::time_point const OriginalFileTime,
 	os::chrono::time_point& FileTime,
-	const string& OSrcDate,
-	const date_ranges& DateRanges,
-	const string& OSrcTime,
-	const time_ranges& TimeRanges)
+	string_view const OSrcDate,
+	string_view const OSrcTime)
 {
 	SYSTEMTIME ost;
 	if (!utc_to_local(OriginalFileTime, ost))
 		return false;
 
-	time_component DateN[3];
-	ParseTimeComponents(OSrcDate, DateRanges, DateN);
-	time_component TimeN[5];
-	ParseTimeComponents(OSrcTime, TimeRanges, TimeN);
-
-	enum indices { i_day, i_month, i_year };
-
-	const auto Indices = []() -> std::array<indices, 3>
-	{
-		switch (locale.date_format())
-		{
-		case 0:  return { i_month, i_day, i_year };
-		case 1:  return { i_day, i_month, i_year };
-		default: return { i_year, i_month, i_day };
-		}
-	}();
+	const auto Point = parse_detailed_time_point(OSrcDate, OSrcTime, static_cast<int>(locale.date_format()));
 
 	SYSTEMTIME st{};
 
@@ -617,25 +604,22 @@ static bool construct_time(
 		std::invoke(Field, st) = New != time_none? New : std::invoke(Field, ost);
 	};
 
-	set_or_inherit(&SYSTEMTIME::wDay,          DateN[Indices[0]]);
-	set_or_inherit(&SYSTEMTIME::wMonth,        DateN[Indices[1]]);
-	set_or_inherit(&SYSTEMTIME::wYear,         DateN[Indices[2]]);
-	set_or_inherit(&SYSTEMTIME::wHour,         TimeN[0]);
-	set_or_inherit(&SYSTEMTIME::wMinute,       TimeN[1]);
-	set_or_inherit(&SYSTEMTIME::wSecond,       TimeN[2]);
-	set_or_inherit(&SYSTEMTIME::wMilliseconds, TimeN[3]);
+	const auto Milliseconds = Point.Hectonanosecond == time_none? time_none : os::chrono::hectonanoseconds(Point.Hectonanosecond) / 1ms;
 
-	if (st.wYear < 100)
-	{
-		st.wYear = static_cast<WORD>(ConvertYearToFull(st.wYear));
-	}
+	set_or_inherit(&SYSTEMTIME::wYear,         Point.Year);
+	set_or_inherit(&SYSTEMTIME::wMonth,        Point.Month);
+	set_or_inherit(&SYSTEMTIME::wDay,          Point.Day);
+	set_or_inherit(&SYSTEMTIME::wHour,         Point.Hour);
+	set_or_inherit(&SYSTEMTIME::wMinute,       Point.Minute);
+	set_or_inherit(&SYSTEMTIME::wSecond,       Point.Second);
+	set_or_inherit(&SYSTEMTIME::wMilliseconds, Milliseconds);
 
 	if (!local_to_utc(st, FileTime))
 		return false;
 
-	FileTime += TimeN[4] != time_none?
-		os::chrono::duration(TimeN[4]) :
-		OriginalFileTime.time_since_epoch() % 1ms;
+	FileTime += (Point.Hectonanosecond != time_none?
+		os::chrono::hectonanoseconds(Point.Hectonanosecond) :
+		OriginalFileTime.time_since_epoch()) % 1ms;
 
 	return true;
 }
@@ -651,14 +635,11 @@ static bool process_single_file(
 	state const& Current,
 	state const& New,
 	function_ref<const string&(int)> const DateTimeAccessor,
-	date_ranges const& DateRanges,
-	time_ranges const& TimeRanges,
 	bool& SkipErrors)
 {
 	if (!New.Owner.empty() && !equal_icase(Current.Owner, New.Owner))
 	{
-		if (ESetFileOwner(Name, New.Owner, SkipErrors) == setattr_result::cancel)
-			return false;
+		ESetFileOwner(Name, New.Owner, SkipErrors);
 	}
 
 	{
@@ -668,60 +649,53 @@ static bool process_single_file(
 		for (const auto& [i, TimePointer]: zip(TimeMap, TimePointers))
 		{
 			const auto OriginalTime = std::invoke(i.Accessor, Current.FindData);
-			if (!construct_time(OriginalTime, *TimePointer, DateTimeAccessor(i.DateId), DateRanges, DateTimeAccessor(i.TimeId), TimeRanges)
+			if (!construct_time(OriginalTime, *TimePointer, DateTimeAccessor(i.DateId), DateTimeAccessor(i.TimeId))
 				|| *TimePointer == OriginalTime)
 			{
 				TimePointer = {};
 			}
 		}
 
-		if (ESetFileTime(Name, TimePointers[0], TimePointers[1], TimePointers[2], TimePointers[3], Current.FindData.Attributes, SkipErrors) == setattr_result::cancel)
-			return false;
+		ESetFileTime(Name, TimePointers[0], TimePointers[1], TimePointers[2], TimePointers[3], Current.FindData.Attributes, SkipErrors);
 	}
 
 	if (New.FindData.Attributes == Current.FindData.Attributes)
 		return true;
 
-	if (ESetFileCompression(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_COMPRESSED) != 0, Current.FindData.Attributes, SkipErrors) == setattr_result::cancel)
-		return false;
+	ESetFileCompression(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_COMPRESSED) != 0, Current.FindData.Attributes, SkipErrors);
 
-	if (ESetFileEncryption(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_ENCRYPTED) != 0, Current.FindData.Attributes, SkipErrors) == setattr_result::cancel)
-		return false;
+	ESetFileEncryption(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_ENCRYPTED) != 0, Current.FindData.Attributes, SkipErrors);
 
-	if (ESetFileSparse(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_SPARSE_FILE) != 0, Current.FindData.Attributes, SkipErrors) == setattr_result::cancel)
-		return false;
+	ESetFileSparse(Name, (New.FindData.Attributes & FILE_ATTRIBUTE_SPARSE_FILE) != 0, Current.FindData.Attributes, SkipErrors);
 
-	const auto IsChanged = [&](DWORD const Attributes)
+	const auto IsChanged = [&](os::fs::attributes const Attributes)
 	{
 		return (New.FindData.Attributes & Attributes) != (Current.FindData.Attributes & Attributes);
 	};
 
 	if (IsChanged(FILE_ATTRIBUTE_REPARSE_POINT))
 	{
-		if (EDeleteReparsePoint(Name, Current.FindData.Attributes, SkipErrors) == setattr_result::cancel)
-			return false;
+		EDeleteReparsePoint(Name, Current.FindData.Attributes, SkipErrors);
 	}
 
 	const auto OtherAttributes = ~(FILE_ATTRIBUTE_ENCRYPTED | FILE_ATTRIBUTE_COMPRESSED | FILE_ATTRIBUTE_SPARSE_FILE | FILE_ATTRIBUTE_REPARSE_POINT);
 	if (IsChanged(OtherAttributes))
 	{
-		if (ESetFileAttributes(Name, New.FindData.Attributes & OtherAttributes, SkipErrors) == setattr_result::cancel)
-			return false;
+		ESetFileAttributes(Name, New.FindData.Attributes & OtherAttributes, SkipErrors);
 	}
 
 	return true;
 }
 
-bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
+static bool ShellSetFileAttributesImpl(Panel* SrcPanel, const string* Object)
 {
-	SCOPED_ACTION(ChangePriority)(THREAD_PRIORITY_NORMAL);
-	short DlgX = 66, DlgY = 22;
+	short DlgX = 74, DlgY = 22;
 
 	const auto C1 = 5;
 	const auto C2 = C1 + (DlgX - 10) / 2;
 	const auto AR = 8;
 
-	auto AttrDlg = MakeDialogItems(
+	auto AttrDlg = MakeDialogItems<SA_COUNT>(
 	{
 		{ DI_DOUBLEBOX, {{ 3,      1     }, {DlgX-4,  DlgY-2}}, DIF_NONE, msg(lng::MSetAttrTitle), },
 		{ DI_TEXT,      {{-1,      2     }, {0,       2     }}, DIF_NONE, msg(lng::MSetAttrFor), },
@@ -743,20 +717,20 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 		{ DI_BUTTON,    {{C2,      8     }, {0,       8     }}, DIF_NONE, msg(lng::MSetAttrMore), },
 
 		{ DI_TEXT,      {{-1,      AR+1  }, {0,       AR+1  }}, DIF_SEPARATOR, },
-		{ DI_TEXT,      {{DlgX-34, AR+2  }, {0,       AR+2  }}, DIF_NONE, },
-		{ DI_TEXT,      {{DlgX-22, AR+2  }, {0,       AR+2  }}, DIF_NONE, },
+		{ DI_TEXT,      {{DlgX-33, AR+2  }, {0,       AR+2  }}, DIF_NONE, },
+		{ DI_TEXT,      {{DlgX-21, AR+2  }, {0,       AR+2  }}, DIF_NONE, },
 		{ DI_TEXT,      {{5,       AR+3  }, {0,       AR+3  }}, DIF_NONE, msg(lng::MSetAttrModification), },
-		{ DI_FIXEDIT,   {{DlgX-34, AR+3  }, {DlgX-24, AR+3  }}, DIF_MASKEDIT, },
-		{ DI_FIXEDIT,   {{DlgX-22, AR+3  }, {DlgX-6,  AR+3  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-33, AR+3  }, {DlgX-23, AR+3  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-21, AR+3  }, {DlgX-6,  AR+3  }}, DIF_MASKEDIT, },
 		{ DI_TEXT,      {{5,       AR+4  }, {0,       AR+4  }}, DIF_NONE, msg(lng::MSetAttrCreation), },
-		{ DI_FIXEDIT,   {{DlgX-34, AR+4  }, {DlgX-24, AR+4  }}, DIF_MASKEDIT, },
-		{ DI_FIXEDIT,   {{DlgX-22, AR+4  }, {DlgX-6,  AR+4  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-33, AR+4  }, {DlgX-23, AR+4  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-21, AR+4  }, {DlgX-6,  AR+4  }}, DIF_MASKEDIT, },
 		{ DI_TEXT,      {{5,       AR+5  }, {0,       AR+5  }}, DIF_NONE, msg(lng::MSetAttrLastAccess), },
-		{ DI_FIXEDIT,   {{DlgX-34, AR+5  }, {DlgX-24, AR+5  }}, DIF_MASKEDIT, },
-		{ DI_FIXEDIT,   {{DlgX-22, AR+5  }, {DlgX-6,  AR+5  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-33, AR+5  }, {DlgX-23, AR+5  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-21, AR+5  }, {DlgX-6,  AR+5  }}, DIF_MASKEDIT, },
 		{ DI_TEXT,      {{5,       AR+6  }, {0,       AR+6  }}, DIF_NONE, msg(lng::MSetAttrChange), },
-		{ DI_FIXEDIT,   {{DlgX-34, AR+6  }, {DlgX-24, AR+6  }}, DIF_MASKEDIT, },
-		{ DI_FIXEDIT,   {{DlgX-22, AR+6  }, {DlgX-6,  AR+6  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-33, AR+6  }, {DlgX-23, AR+6  }}, DIF_MASKEDIT, },
+		{ DI_FIXEDIT,   {{DlgX-21, AR+6  }, {DlgX-6,  AR+6  }}, DIF_MASKEDIT, },
 		{ DI_BUTTON,    {{0,       AR+7  }, {0,       AR+7  }}, DIF_CENTERGROUP | DIF_BTNNOCLOSE, msg(lng::MSetAttrOriginal), },
 		{ DI_BUTTON,    {{0,       AR+7  }, {0,       AR+7  }}, DIF_CENTERGROUP | DIF_BTNNOCLOSE, msg(lng::MSetAttrCurrent), },
 		{ DI_BUTTON,    {{0,       AR+7  }, {0,       AR+7  }}, DIF_CENTERGROUP | DIF_BTNNOCLOSE, msg(lng::MSetAttrBlank), },
@@ -833,33 +807,30 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 		const auto DecimalSeparator = locale.decimal_separator();
 
 		string DateMask, DateFormat;
-		date_ranges DateRanges;
 
 		switch (locale.date_format())
 		{
-		case 0:
-			DateMask = format(FSTR(L"99{0}99{0}9999N"), DateSeparator);
-			DateFormat = format(msg(lng::MSetAttrDateTitle1), DateSeparator);
-			DateRanges = {{ { 0, 2 }, { 3, 2 }, { 6, 5 } }};
-			break;
-
-		case 1:
-			DateMask = format(FSTR(L"99{0}99{0}9999N"), DateSeparator);
-			DateFormat = format(msg(lng::MSetAttrDateTitle2), DateSeparator);
-			DateRanges = {{ { 0, 2 }, { 3, 2 }, { 6, 5 } }};
-			break;
-
 		default:
+		case date_type::ymd:
 			DateMask = format(FSTR(L"N9999{0}99{0}99"), DateSeparator);
-			DateFormat = format(msg(lng::MSetAttrDateTitle3), DateSeparator);
-			DateRanges = {{ { 0, 5 }, { 6, 2 }, { 9, 2 } }};
+			DateFormat = format(msg(lng::MSetAttrDateTitleYMD), DateSeparator);
+			break;
+
+		case date_type::dmy:
+			DateMask = format(FSTR(L"99{0}99{0}9999N"), DateSeparator);
+			DateFormat = format(msg(lng::MSetAttrDateTitleDMY), DateSeparator);
+			break;
+
+		case date_type::mdy:
+			DateMask = format(FSTR(L"99{0}99{0}9999N"), DateSeparator);
+			DateFormat = format(msg(lng::MSetAttrDateTitleMDY), DateSeparator);
 			break;
 		}
 
-		const auto TimeMask = format(FSTR(L"99{0}99{0}99{1}999+9999"), TimeSeparator, DecimalSeparator);
+		const auto TimeMask = format(FSTR(L"99{0}99{0}99{1}9999999"), TimeSeparator, DecimalSeparator);
 
 		AttrDlg[SA_TEXT_TITLEDATE].strData = DateFormat;
-		AttrDlg[SA_TEXT_TITLETIME].strData = format(msg(lng::MSetAttrTimeTitle), TimeSeparator, DecimalSeparator);
+		AttrDlg[SA_TEXT_TITLETIME].strData = format(msg(lng::MSetAttrTimeTitle), TimeSeparator);
 
 		for (const auto& i: TimeMap)
 		{
@@ -867,7 +838,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 			AttrDlg[i.TimeId].strMask = TimeMask;
 		}
 
-		bool FolderPresent=false,LinkPresent=false;
+		bool LinkPresent=false;
 		string strLinkName;
 
 		const auto EnableSubfolders = [&]
@@ -897,11 +868,10 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 				}
 			}
 
-			if (os::fs::is_directory(SingleSelFindData.Attributes))
-			{
-				FolderPresent = true;
+			const auto FolderPresent = os::fs::is_directory(SingleSelFindData.Attributes);
+
+			if (FolderPresent)
 				EnableSubfolders();
-			}
 
 			if (SingleSelFindData.Attributes != INVALID_FILE_ATTRIBUTES)
 			{
@@ -923,26 +893,25 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 			{
 				bool IsRoot = false;
 				const auto PathType = ParsePath(SingleSelFileName, nullptr, &IsRoot);
-				IsMountPoint = IsRoot && ((PathType == root_type::drive_letter || PathType == root_type::unc_drive_letter));
+				IsMountPoint = IsRoot && ((PathType == root_type::drive_letter || PathType == root_type::win32nt_drive_letter));
 			}
 
 			if ((SingleSelFindData.Attributes != INVALID_FILE_ATTRIBUTES && (SingleSelFindData.Attributes & FILE_ATTRIBUTE_REPARSE_POINT)) || IsMountPoint)
 			{
+				auto ID_Msg = IsMountPoint? lng::MSetAttrVolMount : lng::MSetAttrSymlink;
 				DWORD ReparseTag = SingleSelFindData.ReparseTag;
-				DWORD ReparseTagAlternative = 0;
 				bool KnownReparsePoint = false;
 				if (!DlgParam.Plugin)
 				{
 					if (IsMountPoint)
 					{
 						// BUGBUG, cheating
-						KnownReparsePoint = true;
 						ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
-						// BUGBUG check result
-						(void)os::fs::GetVolumeNameForVolumeMountPoint(SingleSelFileName, strLinkName);
+						KnownReparsePoint = os::fs::GetVolumeNameForVolumeMountPoint(SingleSelFileName, strLinkName);
 					}
 					else
 					{
+						DWORD ReparseTagAlternative = 0;
 						KnownReparsePoint = GetReparsePointInfo(SingleSelFileName, strLinkName, &ReparseTagAlternative);
 						if (ReparseTagAlternative && !ReparseTag)
 						{
@@ -1001,9 +970,8 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 
 				LinkPresent=true;
 				NormalizeSymlinkName(strLinkName);
-				auto ID_Msg = lng::MSetAttrSymlink;
 
-				if (ReparseTag==IO_REPARSE_TAG_MOUNT_POINT)
+				if (!IsMountPoint && ReparseTag==IO_REPARSE_TAG_MOUNT_POINT)
 				{
 					bool Root;
 					if(ParsePath(strLinkName, nullptr, &Root) == root_type::volume && Root)
@@ -1021,11 +989,14 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 
 				AttrDlg[SA_TEXT_SYMLINK].Flags &= ~DIF_HIDDEN;
 				AttrDlg[SA_TEXT_SYMLINK].strData = msg(ID_Msg);
+
 				if (ReparseTag != IO_REPARSE_TAG_DFS)
 					AttrDlg[SA_EDIT_SYMLINK].Flags &= ~DIF_HIDDEN;
+
 				AttrDlg[SA_EDIT_SYMLINK].strData = strLinkName;
-				if (ReparseTag == IO_REPARSE_TAG_DEDUP)
-					AttrDlg[SA_EDIT_SYMLINK].Flags |= DIF_DISABLE;
+
+				if (IsMountPoint || ReparseTag == IO_REPARSE_TAG_DEDUP)
+					AttrDlg[SA_EDIT_SYMLINK].Flags |= DIF_READONLY;
 			}
 
 			// обработка случая "несколько хардлинков"
@@ -1084,7 +1055,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 
 			// проверка - есть ли среди выделенных - каталоги?
 			// так же проверка на атрибуты
-			FolderPresent=false;
+			auto FolderPresent = false;
 
 			const auto strComputerName = ExtractComputerName(SrcPanel->GetCurDir());
 
@@ -1239,7 +1210,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 						}
 						else if (OperationResult == operation::cancel)
 						{
-							return false;
+							cancel_operation();
 						}
 					}
 				}
@@ -1247,7 +1218,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 				if (SingleSelFindData.Attributes == INVALID_FILE_ATTRIBUTES)
 					return true;
 
-				DWORD SetAttr = 0, ClearAttr = 0;
+				os::fs::attributes SetAttr = 0, ClearAttr = 0;
 
 				for (const auto& [i, Attr]: zip(DlgParam.Attributes, AttributeMap))
 				{
@@ -1284,7 +1255,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 						Current{ DlgParam.Owner.InitialValue, SingleSelFindData },
 						New{ AttrDlg[SA_EDIT_OWNER].strData, NewFindData };
 
-					if (!process_single_file(SingleSelFileName, Current, New, AttrDlgAccessor, DateRanges, DefaultTimeRanges, SkipErrors))
+					if (!process_single_file(SingleSelFileName, Current, New, AttrDlgAccessor, SkipErrors))
 					{
 						return false;
 					}
@@ -1306,7 +1277,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 					SCOPED_ACTION(taskbar::indeterminate);
 					SCOPED_ACTION(wakeful);
 
-					const time_check TimeCheck(time_check::mode::immediate, GetRedrawTimeout());
+					const time_check TimeCheck(time_check::mode::immediate);
 
 					while (!SrcPanel || SrcPanel->GetSelName(&SingleSelFileName, nullptr, &SingleSelFindData))
 					{
@@ -1326,7 +1297,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 								Current{ L""s, SingleSelFindData }, // BUGBUG, should we read the owner?
 								New{ AttrDlg[SA_EDIT_OWNER].strData, NewFindData };
 
-							if (!process_single_file(SingleSelFileName, Current, New, AttrDlgAccessor, DateRanges, DefaultTimeRanges, SkipErrors))
+							if (!process_single_file(SingleSelFileName, Current, New, AttrDlgAccessor, SkipErrors))
 							{
 								return false;
 							}
@@ -1336,7 +1307,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 						{
 							ScanTree ScTree(false);
 							ScTree.SetFindPath(SingleSelFileName, L"*"sv);
-							const time_check TreeTimeCheck(time_check::mode::delayed, GetRedrawTimeout());
+							const time_check TreeTimeCheck;
 							string strFullName;
 
 							while (ScTree.GetNextName(SingleSelFindData, strFullName))
@@ -1358,7 +1329,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 									Current{ L""s, SingleSelFindData }, // BUGBUG, should we read the owner?
 									New{ AttrDlg[SA_EDIT_OWNER].strData, NewFindData };
 
-								if (!process_single_file(strFullName, Current, New, AttrDlgAccessor, DateRanges, DefaultTimeRanges, SkipErrors))
+								if (!process_single_file(strFullName, Current, New, AttrDlgAccessor, SkipErrors))
 								{
 									return false;
 								}
@@ -1382,7 +1353,7 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 					AddEndSlash(strFullName);
 				}
 				seInfo.lpFile = strFullName.c_str();
-				if (!IsWindowsVistaOrGreater() && ParsePath(seInfo.lpFile) == root_type::unc_drive_letter)
+				if (!IsWindowsVistaOrGreater() && ParsePath(seInfo.lpFile) == root_type::win32nt_drive_letter)
 				{	// "\\?\c:\..." fails on old windows
 					seInfo.lpFile += 4;
 				}
@@ -1407,4 +1378,16 @@ bool ShellSetFileAttributes(Panel *SrcPanel, const string* Object)
 	}
 	Global->WindowManager->RefreshWindow(Global->CtrlObject->Panels());
 	return true;
+}
+
+void ShellSetFileAttributes(Panel* SrcPanel, const string* Object)
+{
+	try
+	{
+		ShellSetFileAttributesImpl(SrcPanel, Object);
+	}
+	catch (const operation_cancelled&)
+	{
+		// Nop
+	}
 }

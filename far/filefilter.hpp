@@ -73,13 +73,13 @@ public:
 	void FilterEdit();
 	void UpdateCurrentTime();
 	bool FileInFilter(const FileListItem* fli, filter_status* FilterStatus = nullptr);
-	bool FileInFilter(const os::fs::find_data& fde, filter_status* FilterStatus = nullptr, const string* FullName = nullptr);
+	bool FileInFilter(const os::fs::find_data& fde, filter_status* FilterStatus = nullptr, string_view FullName = {});
 	bool FileInFilter(const PluginPanelItem& fd, filter_status* FilterStatus = nullptr);
 	bool IsEnabledOnPanel();
 
 	static void InitFilter();
-	static FileFilterParams LoadFilter(/*const*/ HierarchicalConfig& cfg, unsigned long long Key);
-	static void SaveFilter(HierarchicalConfig& cfg, unsigned long long Key, const FileFilterParams& Item);
+	static FileFilterParams LoadFilter(/*const*/ HierarchicalConfig& cfg, unsigned long long KeyId);
+	static void SaveFilter(HierarchicalConfig& cfg, unsigned long long KeyId, const FileFilterParams& Item);
 	static void CloseFilter();
 	static void SwapFilter();
 	static void Save(bool always);
@@ -88,8 +88,6 @@ private:
 	void ProcessSelection(VMenu2 *FilterList) const;
 	enumFileFilterFlagsType GetFFFT() const;
 	wchar_t GetCheck(const FileFilterParams& FFP) const;
-	static void SwapPanelFlags(FileFilterParams& CurFilterData);
-	static int  ParseAndAddMasks(std::list<std::pair<string, int>>& Extensions, const string& FileName, DWORD FileAttr, int Check);
 
 	Panel *m_HostPanel;
 	FAR_FILE_FILTER_TYPE m_FilterType;

@@ -30,6 +30,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "wm_listener.hpp"
 
@@ -38,6 +41,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "imports.hpp"
 #include "notification.hpp"
 #include "global.hpp"
+#include "exception.hpp"
+#include "exception_handler.hpp"
 
 // Platform:
 
@@ -51,7 +56,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 static std::exception_ptr* WndProcExceptionPtr;
 static LRESULT CALLBACK WndProc(HWND Hwnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
-	try
+	cpp_try(
+	[&]
 	{
 		switch (Msg)
 		{
@@ -74,7 +80,12 @@ static LRESULT CALLBACK WndProc(HWND Hwnd, UINT Msg, WPARAM wParam, LPARAM lPara
 						if (BroadcastHeader.dbch_devicetype == DBT_DEVTYP_VOLUME)
 						{
 							const auto& BroadcastVolume = *reinterpret_cast<const DEV_BROADCAST_VOLUME*>(&BroadcastHeader);
-							message_manager::instance().notify(update_devices, update_devices_message{ wParam == DBT_DEVICEARRIVAL, BroadcastVolume.dbcv_unitmask });
+							message_manager::instance().notify(update_devices, update_devices_message
+							{
+								BroadcastVolume.dbcv_unitmask,
+								wParam == DBT_DEVICEARRIVAL,
+								(BroadcastVolume.dbcv_flags & DBTF_MEDIA) != 0
+							});
 						}
 					}
 					break;
@@ -117,8 +128,11 @@ static LRESULT CALLBACK WndProc(HWND Hwnd, UINT Msg, WPARAM wParam, LPARAM lPara
 			break;
 
 		}
-	}
-	CATCH_AND_SAVE_EXCEPTION_TO(*WndProcExceptionPtr)
+	},
+	[]
+	{
+		SAVE_EXCEPTION_TO(*WndProcExceptionPtr);
+	});
 
 	return DefWindowProc(Hwnd, Msg, wParam, lParam);
 }
@@ -145,7 +159,7 @@ void wm_listener::Check()
 	{
 		rethrow_if(m_ExceptionPtr);
 		os::event ReadyEvent(os::event::type::automatic, os::event::state::nonsignaled);
-		m_Thread = os::thread(&os::thread::join, &wm_listener::WindowThreadRoutine, this, &ReadyEvent);
+		m_Thread = os::thread(os::thread::mode::join, &wm_listener::WindowThreadRoutine, this, &ReadyEvent);
 		ReadyEvent.wait();
 	}
 }

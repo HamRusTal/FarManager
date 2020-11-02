@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "pathmix.hpp"
 
@@ -85,108 +88,125 @@ string KernelPath(string_view const NtPath)
 	return KernelPath(string(NtPath));
 }
 
-string KernelPath(string&& NtPath)
+string KernelPath(string NtPath)
 {
-	if (NtPath.size() > 1 && NtPath[1] == L'\\')
+	if (HasPathPrefix(NtPath))
 	{
-		NtPath[1] = L'?';
+		NtPath[1] = NtPath[2] = L'?';
 	}
-	return std::move(NtPath);
+	return NtPath;
 }
 
 
-root_type ParsePath(const string_view Path, size_t* const DirectoryOffset, bool* const Root)
+root_type ParsePath(const string_view Path, size_t* const RootSize, bool* const RootOnly)
 {
-	auto Result = root_type::unknown;
+	const auto re = [](const wchar_t* const Str) { return std::wregex(Str, std::regex::icase | std::regex::optimize); };
 
-	static struct
+	static const struct
 	{
 		root_type Type;
-		const wchar_t* REStr;
 		std::wregex re;
 	}
-	PathTypes[] =
+	PathTypes[]
 	{
-		// TODO: tests for all these types
+#define RE_PATH_PREFIX(x) RE_C_GROUP(RE_BEGIN RE_BACKSLASH RE_NC_GROUP(RE_BACKSLASH RE_Q_MARK RE_OR RE_BACKSLASH RE_DOT RE_OR RE_Q_MARK RE_Q_MARK) RE_BACKSLASH x )
 
-#define RE_PATH_PREFIX(x) RE_C_GROUP(RE_BEGIN RE_BACKSLASH RE_REPEAT(2) RE_ANY_OF(RE_Q_MARK RE_DOT) RE_BACKSLASH x )
-
-		// x:<whatever> or x:\\<whatever>
-		{ root_type::drive_letter, RE_C_GROUP(RE_BEGIN RE_ANY RE_ESCAPE(L":")) RE_NC_GROUP(RE_ANY_SLASH RE_ZERO_OR_ONE_GREEDY) },
-		// \\?\x: or \\?\x:\ or \\?\x:\<whatever>
-		{ root_type::unc_drive_letter, RE_PATH_PREFIX(L".\\:") RE_ANY_SLASH_OR_NONE },
-		// \\server\share or \\server\share\ or \\server\share<whatever>
-		{ root_type::remote, RE_C_GROUP(RE_BEGIN RE_ANY_SLASH RE_REPEAT(2) RE_NONE_OF(RE_SPACE RE_SLASHES RE_Q_MARK) RE_ONE_OR_MORE_LAZY RE_ANY_SLASH RE_ONE_OR_MORE_LAZY RE_NONE_OF(RE_SLASHES) RE_ONE_OR_MORE_GREEDY) RE_ANY_SLASH_OR_NONE },
-		// \\?\unc\server\share or \\?\unc\server\share\ or \\?\unc\server\share<whatever>
-		{ root_type::unc_remote, RE_PATH_PREFIX(L"unc" RE_BACKSLASH RE_NONE_OF(RE_SPACE RE_SLASHES RE_Q_MARK) RE_ONE_OR_MORE_LAZY RE_BACKSLASH RE_NONE_OF(RE_SLASHES) RE_ONE_OR_MORE_GREEDY) RE_ANY_SLASH_OR_NONE },
-		// \\?\Volume{GUID} or \\?\Volume{GUID}\ or \\?\Volume{GUID}<whatever>
-		{ root_type::volume, RE_PATH_PREFIX(L"volume" RE_ESCAPE(L"{") RE_ANY_UUID RE_ESCAPE(L"}")) RE_ANY_SLASH_OR_NONE },
-		// \\?\pipe\ or \\?\pipe
-		{ root_type::pipe, RE_PATH_PREFIX(L"pipe") RE_ANY_SLASH_OR_NONE },
+		{
+			// x:(...)
+			root_type::drive_letter,
+			re(RE_C_GROUP(RE_BEGIN RE_ANY RE_ESCAPE(L":")) RE_NC_GROUP(RE_ANY_SLASH RE_ZERO_OR_ONE_GREEDY)),
+		},
+		{
+			// \\?\x:(\...)
+			root_type::win32nt_drive_letter,
+			re(RE_PATH_PREFIX(L".\\:") RE_ANY_SLASH_OR_NONE),
+		},
+		{
+			// \\server\share(\...)
+			root_type::remote,
+			re(RE_C_GROUP(RE_BEGIN RE_ANY_SLASH RE_REPEAT(2) RE_NONE_OF(RE_DOT) RE_NONE_OF(RE_SPACE RE_SLASHES RE_Q_MARK) RE_ONE_OR_MORE_LAZY RE_ANY_SLASH RE_ONE_OR_MORE_LAZY RE_NONE_OF(RE_SLASHES) RE_ONE_OR_MORE_GREEDY) RE_ANY_SLASH_OR_NONE),
+		},
+		{
+			// \\?\unc\server\share(\...)
+			root_type::unc_remote,
+			re(RE_PATH_PREFIX(L"unc" RE_BACKSLASH RE_NONE_OF(RE_DOT) RE_NONE_OF(RE_SPACE RE_SLASHES RE_Q_MARK) RE_ONE_OR_MORE_LAZY RE_BACKSLASH RE_NONE_OF(RE_SLASHES) RE_ONE_OR_MORE_GREEDY) RE_ANY_SLASH_OR_NONE),
+		},
+		{
+			// \\?\Volume{UUID}(\...)
+			root_type::volume,
+			re(RE_PATH_PREFIX(L"volume" RE_ESCAPE(L"{") RE_ANY_UUID RE_ESCAPE(L"}")) RE_ANY_SLASH_OR_NONE),
+		},
+		{
+			// \\?\pipe(\...)
+			root_type::pipe,
+			re(RE_PATH_PREFIX(L"pipe") RE_ANY_SLASH_OR_NONE),
+		},
+		{
+			// \\?\<anything_else>(\...)
+			root_type::unknown_rootlike,
+			re(RE_PATH_PREFIX(L"." RE_ONE_OR_MORE_LAZY) RE_ANY_SLASH_OR_NONE),
+		}
 
 #undef RE_PATH_REFIX
 	};
-	static bool REInit = false;
-	if(!REInit)
-	{
-		for (auto& i: PathTypes)
-		{
-			i.re.assign(i.REStr, std::regex::icase | std::regex::optimize);
-		}
-
-		REInit = true;
-	}
 
 	std::wcmatch Match;
 
-	const auto ItemIterator = std::find_if(CONST_RANGE(PathTypes, i) { return std::regex_search(Path.data(), Path.data() + Path.size(), Match, i.re); });
-
-	if (ItemIterator != std::cend(PathTypes))
+	const auto ItemIterator = std::find_if(CONST_RANGE(PathTypes, i)
 	{
-		const size_t MatchLength = Match[0].length();
-		if (DirectoryOffset)
-		{
-			*DirectoryOffset = MatchLength;
-		}
-		if (Root)
-		{
-			*Root = Path.size() == MatchLength || (Path.size() == (MatchLength + 1) && IsSlash(Path[MatchLength]));
-		}
-		Result = ItemIterator->Type;
-	}
+		return std::regex_search(Path.data(), Path.data() + Path.size(), Match, i.re);
+	});
 
-	return Result;
+	if (ItemIterator == std::cend(PathTypes))
+		return root_type::unknown;
+
+	const size_t MatchLength = Match[0].length();
+
+	if (RootSize)
+		*RootSize = MatchLength;
+
+	if (RootOnly)
+		*RootOnly = Path.size() == MatchLength || (Path.size() == MatchLength + 1 && IsSlash(Path[MatchLength]));
+
+	return ItemIterator->Type;
 }
 
 bool IsAbsolutePath(const string_view Path)
 {
 	const auto Type = ParsePath(Path);
 
-	return (Type != root_type::unknown && Type != root_type::drive_letter) ||
-	       (Type == root_type::drive_letter && (Path.size() > 2 && IsSlash(Path[2])));
+	return
+		(Type != root_type::unknown && Type != root_type::drive_letter) ||
+		(Type == root_type::drive_letter && (Path.size() > 2 && IsSlash(Path[2])));
 }
 
 bool HasPathPrefix(const string_view Path)
 {
-	/*
-		\\?\
-		\\.\
-		\??\
-	*/
-	return Path.size() > 4 &&  Path[0] == L'\\' && (Path[1] == L'\\' || Path[1] == L'?') && (Path[2] == L'?' || Path[2] == L'.') && Path[3] == L'\\';
+	return
+		starts_with(Path, L"\\\\?\\"sv) ||
+		starts_with(Path, L"\\\\.\\"sv) ||
+		starts_with(Path, L"\\??\\"sv);
 }
 
-bool PathCanHoldRegularFile(const string& Path)
+string_view ExtractPathPrefix(const string_view Path)
+{
+	if (starts_with_icase(Path, L"\\\\?\\UNC\\"sv))
+		return Path.substr(0, 8);
+
+	return HasPathPrefix(Path)? Path.substr(0, 4) : L""sv;
+}
+
+bool PathCanHoldRegularFile(string_view const Path)
 {
 	return ParsePath(Path) != root_type::unknown;
 }
 
-bool IsPluginPrefixPath(const string& Path) //Max:
+bool IsPluginPrefixPath(string_view const Path) //Max:
 {
 	if (Path.empty() || Path[0] == L'\\')
 		return false;
 
-	size_t pos = Path.find(L':');
+	const auto pos = Path.find(L':');
 
 	if (pos == string::npos || !pos)
 		return false;
@@ -207,7 +227,7 @@ bool IsPluginPrefixPath(const string& Path) //Max:
 
 bool IsParentDirectory(string_view const Str)
 {
-	return starts_with(Str, L".."sv) && (Str.size() == 2 || (Str.size() == 3 && IsSlash(Str[2])));
+	return DeleteEndSlash(Str) == L".."sv;
 }
 
 bool IsParentDirectory(const FileListItem& Data)
@@ -254,10 +274,15 @@ string_view PointToFolderNameIfFolder(string_view Path)
 	return PointToName(Path);
 }
 
-string_view PointToExt(string_view const Path)
+std::pair<string_view, string_view> name_ext(string_view const Path)
 {
-	const auto ExtensionStart = std::find(ALL_CONST_REVERSE_RANGE(Path), L'.');
-	return Path.substr(ExtensionStart == Path.crend()? Path.size() : Path.crend() - ExtensionStart - 1);
+	auto ExtensionStart = std::find_if(ALL_CONST_REVERSE_RANGE(Path), [](wchar_t const Char){ return Char == L'.' || IsSlash(Char); });
+	if (ExtensionStart != Path.crend() && *ExtensionStart != L'.')
+		ExtensionStart = Path.crend();
+
+	const auto NameSize = ExtensionStart == Path.crend()? Path.size() : Path.crend() - ExtensionStart - 1;
+
+	return { Path.substr(0, NameSize), Path.substr(NameSize) };
 }
 
 
@@ -278,7 +303,7 @@ static size_t SlashType(const wchar_t* Begin, const wchar_t* End, wchar_t &TypeS
 }
 
 // Функция работает с обоими видами слешей, также происходит
-//	изменение уже существующего конечного слеша на такой, который
+// изменение уже существующего конечного слеша на такой, который
 // указан, или встречается чаще (при равенстве '\').
 //
 bool AddEndSlash(wchar_t *Path, wchar_t TypeSlash)
@@ -292,13 +317,20 @@ bool AddEndSlash(wchar_t *Path, wchar_t TypeSlash)
 		--len;
 
 	Path[len++] = TypeSlash;
-	Path[len] = L'\0';
+	Path[len] = {};
 	return true;
 }
 
 bool AddEndSlash(wchar_t *Path)
 {
-	return AddEndSlash(Path, L'\0');
+	return AddEndSlash(Path, {});
+}
+
+string AddEndSlash(string_view const Path)
+{
+	string Result(Path);
+	AddEndSlash(Result);
+	return Result;
 }
 
 void AddEndSlash(string &strPath, wchar_t TypeSlash)
@@ -306,7 +338,7 @@ void AddEndSlash(string &strPath, wchar_t TypeSlash)
 	if (!IsSlash(TypeSlash))
 		SlashType(strPath.data(), strPath.data() + strPath.size(), TypeSlash);
 
-	wchar_t LastSlash = L'\0';
+	wchar_t LastSlash{};
 
 	if (!strPath.empty() && IsSlash(strPath.back()))
 		LastSlash = strPath.back();
@@ -322,7 +354,7 @@ void AddEndSlash(string &strPath, wchar_t TypeSlash)
 
 void AddEndSlash(string &strPath)
 {
-	AddEndSlash(strPath, L'\0');
+	AddEndSlash(strPath, {});
 }
 
 void DeleteEndSlash(wchar_t *Path)
@@ -336,28 +368,34 @@ void DeleteEndSlash(string &Path)
 	Path.resize(Path.rend() - std::find_if_not(Path.rbegin(), Path.rend(), IsSlash));
 }
 
-void DeleteEndSlash(string_view& Path)
+string_view DeleteEndSlash(string_view Path)
 {
 	Path.remove_suffix(std::find_if_not(Path.rbegin(), Path.rend(), IsSlash) - Path.rbegin());
+	return Path;
 }
 
-bool CutToSlash(string &strStr, bool bInclude)
+bool CutToSlash(string_view& Str, bool const RemoveSlash)
 {
-	const auto pos = FindLastSlash(strStr);
-	if (pos != string::npos)
-	{
-		if (pos==3 && HasPathPrefix(strStr))
-			return false;
+	const auto pos = FindLastSlash(Str);
+	if (pos == string::npos)
+		return false;
 
-		if (bInclude)
-			strStr.resize(pos);
-		else
-			strStr.resize(pos+1);
+	if (pos == 3 && HasPathPrefix(Str))
+		return false;
 
-		return true;
-	}
+	Str.remove_suffix(Str.size() - pos - (RemoveSlash? 0 : 1));
 
-	return false;
+	return true;
+}
+
+bool CutToSlash(string& Str, bool const RemoveSlash)
+{
+	string_view View(Str);
+	if (!CutToSlash(View, RemoveSlash))
+		return false;
+
+	Str.resize(View.size());
+	return true;
 }
 
 bool CutToParent(string_view& Str)
@@ -418,13 +456,26 @@ static size_t GetPathRootLength(string_view const Path)
 	return ParsePath(Path, &DirOffset) == root_type::unknown? 0 : DirOffset;
 }
 
-string ExtractPathRoot(string_view const Path)
+string_view extract_root_device(string_view const Path)
 {
-	const auto PathRootLen = GetPathRootLength(Path);
-	if (!PathRootLen)
+	const auto RootSize = GetPathRootLength(Path);
+	if (!RootSize)
 		return{};
 
-	return path::join(Path.substr(0, PathRootLen), L""sv);
+	return Path.substr(0, RootSize - (IsSlash(Path[RootSize - 1])? 1 : 0));
+}
+
+string extract_root_directory(string_view const Path)
+{
+	const auto RootSize = GetPathRootLength(Path);
+	if (!RootSize)
+		return{};
+
+	if (IsSlash(Path[RootSize - 1]))
+		return string{ Path.substr(0, RootSize) };
+
+	// A fancy way to add a trailing slash
+	return path::join(Path.substr(0, RootSize), L""sv);
 }
 
 string_view ExtractFileName(string_view const Path)
@@ -460,8 +511,7 @@ bool IsRootPath(const string_view Path)
 
 bool PathStartsWith(const string_view Path, const string_view Start)
 {
-	auto PathPart = Start;
-	DeleteEndSlash(PathPart);
+	const auto PathPart = DeleteEndSlash(Start);
 	return starts_with(Path, PathPart) && (Path.size() == PathPart.size() || IsSlash(Path[PathPart.size()]));
 }
 
@@ -471,54 +521,60 @@ bool PathStartsWith(const string_view Path, const string_view Start)
 
 TEST_CASE("path.join")
 {
-	REQUIRE(path::join(L"foo"sv, L""sv) == L"foo\\"sv);
-	REQUIRE(path::join(L"foo"sv, L"\\"sv) == L"foo\\"sv);
-	REQUIRE(path::join(L""sv, L""sv) == L""sv);
-	REQUIRE(path::join(L""sv, L"\\"sv) == L""sv);
-	REQUIRE(path::join(L""sv, L"foo"sv) == L"foo"sv);
-	REQUIRE(path::join(L"\\foo"sv, L""sv) == L"\\foo\\"sv);
-	REQUIRE(path::join(L"\\foo"sv, L"\\"sv) == L"\\foo\\"sv);
-	REQUIRE(path::join(L"\\"sv, L"foo\\"sv) == L"foo"sv);
-	REQUIRE(path::join(L"foo"sv, L"bar"sv) == L"foo\\bar"sv);
-	REQUIRE(path::join(L"\\foo"sv, L"bar\\"sv) == L"\\foo\\bar"sv);
-	REQUIRE(path::join(L"foo\\"sv, L"bar"sv) == L"foo\\bar"sv);
-	REQUIRE(path::join(L"foo\\"sv, L"\\bar"sv) == L"foo\\bar"sv);
-	REQUIRE(path::join(L"foo\\"sv, L'\\', L"\\bar"sv) == L"foo\\bar"sv);
-	REQUIRE(path::join(L"foo\\"sv, L""sv, L"\\bar"sv) == L"foo\\bar"sv);
-	REQUIRE(path::join(L"\\\\foo\\\\"sv, L"\\\\bar\\"sv) == L"\\\\foo\\bar"sv);
+	REQUIRE(path::join(L"foo"sv, L""sv)                         == L"foo\\"sv);
+	REQUIRE(path::join(L"foo"sv, L"\\"sv)                       == L"foo\\"sv);
+	REQUIRE(path::join(L""sv, L""sv)                            == L""sv);
+	REQUIRE(path::join(L""sv, L"\\"sv)                          == L""sv);
+	REQUIRE(path::join(L""sv, L"foo"sv)                         == L"foo"sv);
+	REQUIRE(path::join(L"\\foo"sv, L""sv)                       == L"\\foo\\"sv);
+	REQUIRE(path::join(L"\\foo"sv, L"\\"sv)                     == L"\\foo\\"sv);
+	REQUIRE(path::join(L"\\"sv, L"foo\\"sv)                     == L"foo"sv);
+	REQUIRE(path::join(L"foo"sv, L"bar"sv)                      == L"foo\\bar"sv);
+	REQUIRE(path::join(L"\\foo"sv, L"bar\\"sv)                  == L"\\foo\\bar"sv);
+	REQUIRE(path::join(L"foo\\"sv, L"bar"sv)                    == L"foo\\bar"sv);
+	REQUIRE(path::join(L"foo\\"sv, L"\\bar"sv)                  == L"foo\\bar"sv);
+	REQUIRE(path::join(L"foo\\"sv, L'\\', L"\\bar"sv)           == L"foo\\bar"sv);
+	REQUIRE(path::join(L"foo\\"sv, L""sv, L"\\bar"sv)           == L"foo\\bar"sv);
+	REQUIRE(path::join(L"\\\\foo\\\\"sv, L"\\\\bar\\"sv)        == L"\\\\foo\\bar"sv);
 }
 
-TEST_CASE("path.ExtractPathRoot")
+TEST_CASE("path.extract_root")
 {
 	static const struct
 	{
-		string_view Input, Result;
+		string_view Input, RootDevice, RootDirectory;
 	}
 	Tests[]
 	{
-		{L""sv, L""sv},
-		{L"\\"sv, L""sv},
-		{L"file"sv, L""sv},
-		{L"path\\file"sv, L""sv},
-		{L"C:"sv, L"C:\\"sv},
-		{L"C:\\"sv, L"C:\\"sv},
-		{L"C:\\path\\file"sv, L"C:\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\server\\share"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\server\\share\\"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\server\\share\\path\\file"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\1.2.3.4\\share\\path\\file"sv, L"\\\\1.2.3.4\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share\\"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share\\path\\file"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\1.2.3.4\\share\\path\\file"sv, L"\\\\?\\UNC\\1.2.3.4\\share\\"sv},
+		{{},                                                                       {}},
+		{L"\\"sv,                                                                  {}},
+		{L"file"sv,                                                                {}},
+		{L"path\\file"sv,                                                          {}},
+		{L"C:"sv,                                                                  L"C:"sv},
+		{L"C:\\"sv,                                                                L"C:"sv},
+		{L"C:\\path\\file"sv,                                                      L"C:"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv,                 L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv,               L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv,     L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv},
+		{L"\\\\server\\share"sv,                                                   L"\\\\server\\share"sv},
+		{L"\\\\server\\share\\"sv,                                                 L"\\\\server\\share"sv},
+		{L"\\\\server\\share\\path\\file"sv,                                       L"\\\\server\\share"sv},
+		{L"\\\\1.2.3.4\\share\\path\\file"sv,                                      L"\\\\1.2.3.4\\share"sv},
+		{L"\\\\?\\UNC\\server\\share"sv,                                           L"\\\\?\\UNC\\server\\share"sv},
+		{L"\\\\?\\UNC\\server\\share\\"sv,                                         L"\\\\?\\UNC\\server\\share"sv},
+		{L"\\\\?\\UNC\\server\\share\\path\\file"sv,                               L"\\\\?\\UNC\\server\\share"sv},
+		{L"\\\\?\\UNC\\1.2.3.4\\share\\path\\file"sv,                              L"\\\\?\\UNC\\1.2.3.4\\share"sv},
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == ExtractPathRoot(Test.Input));
+		REQUIRE(i.RootDevice == extract_root_device(i.Input));
+
+		const auto RootDirectory = extract_root_directory(i.Input);
+		if (i.RootDevice.empty())
+			REQUIRE(RootDirectory.empty());
+		else
+			REQUIRE(RootDirectory == i.RootDevice + L"\\"sv);
 	}
 }
 
@@ -530,33 +586,33 @@ TEST_CASE("path.ExtractFilePath")
 	}
 	Tests[]
 	{
-		{L""sv, L""sv},
-		{L"\\"sv, L""sv},
-		{L"\\file"sv, L""sv},
-		{L"file"sv, L""sv},
-		{L"path\\"sv, L"path"sv},
-		{L"path\\file"sv, L"path"sv},
-		{L"C:"sv, L"C:\\"sv},
-		{L"C:\\"sv, L"C:\\"sv},
-		{L"C:\\file"sv, L"C:\\"sv},
-		{L"C:\\path\\file"sv, L"C:\\path"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path"sv},
-		{L"\\\\server\\share"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\server\\share\\"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\server\\share\\file"sv, L"\\\\server\\share\\"sv},
-		{L"\\\\server\\share\\path\\file"sv, L"\\\\server\\share\\path"sv},
-		{L"\\\\?\\UNC\\server\\share"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share\\"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share\\file"sv, L"\\\\?\\UNC\\server\\share\\"sv},
-		{L"\\\\?\\UNC\\server\\share\\path\\file"sv, L"\\\\?\\UNC\\server\\share\\path"sv},
+		{{},                                                                       {}},
+		{L"\\"sv,                                                                  {}},
+		{L"\\file"sv,                                                              {}},
+		{L"file"sv,                                                                {}},
+		{L"path\\"sv,                                                              L"path"sv},
+		{L"path\\file"sv,                                                          L"path"sv},
+		{L"C:"sv,                                                                  L"C:\\"sv},
+		{L"C:\\"sv,                                                                L"C:\\"sv},
+		{L"C:\\file"sv,                                                            L"C:\\"sv},
+		{L"C:\\path\\file"sv,                                                      L"C:\\path"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv,                 L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv,               L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv,           L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv,     L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path"sv},
+		{L"\\\\server\\share"sv,                                                   L"\\\\server\\share\\"sv},
+		{L"\\\\server\\share\\"sv,                                                 L"\\\\server\\share\\"sv},
+		{L"\\\\server\\share\\file"sv,                                             L"\\\\server\\share\\"sv},
+		{L"\\\\server\\share\\path\\file"sv,                                       L"\\\\server\\share\\path"sv},
+		{L"\\\\?\\UNC\\server\\share"sv,                                           L"\\\\?\\UNC\\server\\share\\"sv},
+		{L"\\\\?\\UNC\\server\\share\\"sv,                                         L"\\\\?\\UNC\\server\\share\\"sv},
+		{L"\\\\?\\UNC\\server\\share\\file"sv,                                     L"\\\\?\\UNC\\server\\share\\"sv},
+		{L"\\\\?\\UNC\\server\\share\\path\\file"sv,                               L"\\\\?\\UNC\\server\\share\\path"sv},
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == ExtractFilePath(Test.Input));
+		REQUIRE(i.Result == ExtractFilePath(i.Input));
 	}
 }
 
@@ -568,33 +624,33 @@ TEST_CASE("path.ExtractFileName")
 	}
 	Tests[]
 	{
-		{L""sv, L""sv},
-		{L"\\"sv, L""sv},
-		{L"\\file"sv, L"file"sv},
-		{L"file"sv, L"file"sv},
-		{L"path\\"sv, L""sv},
-		{L"path\\file"sv, L"file"sv},
-		{L"C:"sv, L""sv},
-		{L"C:\\"sv, L""sv},
-		{L"C:\\file"sv, L"file"sv},
-		{L"C:\\path\\file"sv, L"file"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv, L""sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv, L""sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv, L"file"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv, L"file"sv},
-		{L"\\\\server\\share"sv, L""sv},
-		{L"\\\\server\\share\\"sv, L""sv},
-		{L"\\\\server\\share\\file"sv, L"file"sv},
-		{L"\\\\server\\share\\path\\file"sv, L"file"sv},
-		{L"\\\\?\\UNC\\server\\share"sv, L""sv},
-		{L"\\\\?\\UNC\\server\\share\\"sv, L""sv},
-		{L"\\\\?\\UNC\\server\\share\\file"sv, L"file"sv},
-		{L"\\\\?\\UNC\\server\\share\\path\\file"sv, L"file"sv},
+		{{},                                                                       {}},
+		{L"\\"sv,                                                                  {}},
+		{L"\\file"sv,                                                              L"file"sv},
+		{L"file"sv,                                                                L"file"sv},
+		{L"path\\"sv,                                                              {}},
+		{L"path\\file"sv,                                                          L"file"sv},
+		{L"C:"sv,                                                                  {}},
+		{L"C:\\"sv,                                                                {}},
+		{L"C:\\file"sv,                                                            L"file"sv},
+		{L"C:\\path\\file"sv,                                                      L"file"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv,                 {}},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv,               {}},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv,           L"file"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv,     L"file"sv},
+		{L"\\\\server\\share"sv,                                                   {}},
+		{L"\\\\server\\share\\"sv,                                                 {}},
+		{L"\\\\server\\share\\file"sv,                                             L"file"sv},
+		{L"\\\\server\\share\\path\\file"sv,                                       L"file"sv},
+		{L"\\\\?\\UNC\\server\\share"sv,                                           {}},
+		{L"\\\\?\\UNC\\server\\share\\"sv,                                         {}},
+		{L"\\\\?\\UNC\\server\\share\\file"sv,                                     L"file"sv},
+		{L"\\\\?\\UNC\\server\\share\\path\\file"sv,                               L"file"sv},
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == ExtractFileName(Test.Input));
+		REQUIRE(i.Result == ExtractFileName(i.Input));
 	}
 }
 
@@ -606,101 +662,130 @@ TEST_CASE("path.PointToName")
 	}
 	Tests[]
 	{
-		{L""sv, L""sv},
-		{L"\\"sv, L""sv},
-		{L"\\file"sv, L"file"sv},
-		{L"file"sv, L"file"sv},
-		{L"path\\"sv, L""sv},
-		{L"path\\file"sv, L"file"sv},
-		// {L"C:"sv, L""sv},
-		{L"C:\\"sv, L""sv},
-		{L"C:\\file"sv, L"file"sv},
-		{L"C:\\path\\file"sv, L"file"sv},
-		// {L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv, L""sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv, L""sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv, L"file"sv},
-		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv, L"file"sv},
-		// {L"\\\\server\\share"sv, L""sv},
-		{L"\\\\server\\share\\"sv, L""sv},
-		{L"\\\\server\\share\\file"sv, L"file"sv},
-		{L"\\\\server\\share\\path\\file"sv, L"file"sv},
-		// {L"\\\\?\\UNC\\server\\share"sv, L""sv},
-		{L"\\\\?\\UNC\\server\\share\\"sv, L""sv},
-		{L"\\\\?\\UNC\\server\\share\\file"sv, L"file"sv},
-		{L"\\\\?\\UNC\\server\\share\\path\\file"sv, L"file"sv},
+		{{},                                                                       {}},
+		{L"\\"sv,                                                                  {}},
+		{L"\\file"sv,                                                              L"file"sv},
+		{L"file"sv,                                                                L"file"sv},
+		{L"path\\"sv,                                                              {}},
+		{L"path\\file"sv,                                                          L"file"sv},
+		// {L"C:"sv,                                                                  {}},
+		{L"C:\\"sv,                                                                {}},
+		{L"C:\\file"sv,                                                            L"file"sv},
+		{L"C:\\path\\file"sv,                                                      L"file"sv},
+		// {L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}"sv,                 {}},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv,               {}},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\file"sv,           L"file"sv},
+		{L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\path\\file"sv,     L"file"sv},
+		// {L"\\\\server\\share"sv,                                                   {}},
+		{L"\\\\server\\share\\"sv,                                                 {}},
+		{L"\\\\server\\share\\file"sv,                                             L"file"sv},
+		{L"\\\\server\\share\\path\\file"sv,                                       L"file"sv},
+		// {L"\\\\?\\UNC\\server\\share"sv,                                           {}},
+		{L"\\\\?\\UNC\\server\\share\\"sv,                                         {}},
+		{L"\\\\?\\UNC\\server\\share\\file"sv,                                     L"file"sv},
+		{L"\\\\?\\UNC\\server\\share\\path\\file"sv,                               L"file"sv},
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == PointToName(Test.Input));
+		REQUIRE(i.Result == PointToName(i.Input));
 	}
 }
 
-TEST_CASE("path.PointToExt")
+TEST_CASE("path.name_ext")
 {
 	static const struct
 	{
-		string_view Input, Result;
+		string_view Input, Name, Extension;
 	}
 	Tests[]
 	{
-		{L""sv, L""sv},
-		{L"file"sv, L""sv},
-		{L"path\\file"sv, L""sv},
-		{L"file.ext"sv, L".ext"sv},
-		{L"path\\file.ext"sv, L".ext"sv},
-		{L"file.ext1.ext2"sv, L".ext2"sv},
-		{L"path\\file.ext1.ext2"sv, L".ext2"sv},
+		{ {},                                 {},                        {}         },
+		{ L"file"sv,                          L"file"sv,                 {}         },
+		{ L"path\\file"sv,                    L"path\\file"sv,           {}         },
+		{ L"path.ext\\file"sv,                L"path.ext\\file"sv,       {}         },
+		{ L".\\"sv,                           L".\\"sv,                  {}         },
+		{ L"\\."sv,                           L"\\"sv,                   L"."sv     },
+		{ L"."sv,                             {},                        L"."sv     },
+		{ L".."sv,                            L"."sv,                    L"."sv     },
+		{ L"..."sv,                           L".."sv,                   L"."sv     },
+		{ L"file."sv,                         L"file"sv,                 L"."sv     },
+		{ L".e"sv,                            {},                        L".e"sv    },
+		{ L".ext"sv,                          {},                        L".ext"sv  },
+		{ L"..ext"sv,                         L"."sv,                    L".ext"sv  },
+		{ L"file.ext"sv,                      L"file"sv,                 L".ext"sv  },
+		{ L"path\\file.ext"sv,                L"path\\file"sv,           L".ext"sv  },
+		{ L"file.ext1.ext2"sv,                L"file.ext1"sv,            L".ext2"sv },
+		{ L"path\\file.ext1.ext2"sv,          L"path\\file.ext1"sv,      L".ext2"sv },
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == PointToExt(Test.Input));
+		const auto& [Name, Extension] = name_ext(i.Input);
+		REQUIRE(i.Name == Name);
+		REQUIRE(i.Extension == Extension);
 	}
 }
 
-TEST_CASE("path.IsRootPath")
+TEST_CASE("path.ParsePath")
 {
 	static const struct
 	{
-		bool Result;
-		string_view Input;
+		string_view Str;
+		root_type Type;
+		size_t DirOffset;
+		bool Root;
 	}
 	Tests[]
 	{
-		{ false,  L""sv },
-		{ false,  L"dir"sv },
-		{ false,  L"dir\\"sv },
-		{ true,  L"\\"sv },
-		{ false, L"\\dir"sv },
-		{ false, L"\\dir\\"sv },
-		{ true,  L"C:"sv },
-		{ false, L"C:dir"sv },
-		{ false, L"C:dir\\"sv },
-		{ true,  L"C:\\"sv },
-		{ false, L"C:\\dir"sv },
-		{ false, L"C:\\dir\\"sv },
-		{ true,  L"\\\\?\\C:"sv },
-		{ true,  L"\\\\?\\C:\\"sv },
-		{ false, L"\\\\?\\C:\\dir"sv },
-		{ false, L"\\\\?\\C:\\dir\\"sv },
-		{ true,  L"\\\\server\\share"sv },
-		{ true,  L"\\\\server\\share\\"sv },
-		{ false, L"\\\\server\\share\\dir"sv },
-		{ false, L"\\\\server\\share\\dir\\"sv },
-		{ true,  L"\\\\?\\UNC\\server\\share"sv },
-		{ true,  L"\\\\?\\UNC\\server\\share\\"sv },
-		{ false, L"\\\\?\\UNC\\server\\share\\dir"sv },
-		{ false, L"\\\\?\\UNC\\server\\share\\dir\\"sv },
-		{ true,  L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv },
-		{ true,  L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\"sv },
-		{ false, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\dir"sv },
-		{ false, L"\\\\?\\Volume{01e45c83-9ce4-11db-b27f-806d6172696f}\\dir\\"sv },
+		{ {},                                                              root_type::unknown,                 0,   false, },
+		{ L"1"sv,                                                          root_type::unknown,                 0,   false, },
+		{ L"\\"sv,                                                         root_type::unknown,                 0,   false, },
+		{ L"path\\file"sv,                                                 root_type::unknown,                 0,   false, },
+		{ L"A:"sv,                                                         root_type::drive_letter,            2,   true,  },
+		{ L"A:path"sv,                                                     root_type::drive_letter,            2,   false, },
+		{ L"B:\\"sv,                                                       root_type::drive_letter,            3,   true,  },
+		{ L"C:\\path"sv,                                                   root_type::drive_letter,            3,   false, },
+		{ L"CC:\\path"sv,                                                  root_type::unknown,                 0,   false, },
+		{ L"\\\\?\\A:"sv,                                                  root_type::win32nt_drive_letter,    6,   true,  },
+		{ L"\\\\?\\B:\\"sv,                                                root_type::win32nt_drive_letter,    7,   true,  },
+		{ L"\\\\?\\C:\\path"sv,                                            root_type::win32nt_drive_letter,    7,   false, },
+		{ L"\\\\?\\CC:\\path"sv,                                           root_type::unknown_rootlike,        8,   false, },
+		{ L"\\\\.\\A:"sv,                                                  root_type::win32nt_drive_letter,    6,   true,  },
+		{ L"\\\\.\\B:\\"sv,                                                root_type::win32nt_drive_letter,    7,   true,  },
+		{ L"\\\\.\\C:\\path"sv,                                            root_type::win32nt_drive_letter,    7,   false, },
+		{ L"\\\\.\\CC:\\path"sv,                                           root_type::unknown_rootlike,        8,   false, },
+		{ L"\\??\\A:"sv,                                                   root_type::win32nt_drive_letter,    6,   true,  },
+		{ L"\\??\\B:\\"sv,                                                 root_type::win32nt_drive_letter,    7,   true,  },
+		{ L"\\??\\C:\\path"sv,                                             root_type::win32nt_drive_letter,    7,   false, },
+		{ L"\\??\\CC:\\path"sv,                                            root_type::unknown_rootlike,        8,   false, },
+		{ L"\\\\server\\share"sv,                                          root_type::remote,                 14,   true,  },
+		{ L"\\\\server\\share\\"sv,                                        root_type::remote,                 15,   true,  },
+		{ L"\\\\server\\share\\path"sv,                                    root_type::remote,                 15,   false, },
+		{ L"\\\\server"sv,                                                 root_type::unknown,                 0,   false, },
+		{ L"\\\\?\\UNC\\server\\share"sv,                                  root_type::unc_remote,             20,   true,  },
+		{ L"\\\\?\\UNC\\server\\share\\"sv,                                root_type::unc_remote,             21,   true,  },
+		{ L"\\\\?\\UNC\\server\\share\\path"sv,                            root_type::unc_remote,             21,   false, },
+		{ L"\\\\?\\Volume{01234567-89AB-CDEF-0123-456789ABCDEF}"sv,        root_type::volume,                 48,   true,  },
+		{ L"\\\\?\\Volume{01234567-89AB-CDEF-0123-456789ABCDEF}\\"sv,      root_type::volume,                 49,   true,  },
+		{ L"\\\\?\\Volume{01234567-89AB-CDEF-0123-456789ABCDEF}\\path"sv,  root_type::volume,                 49,   false, },
+		{ L"\\\\?\\Volume{01234567-89AB-CDEF-0123-456789ABCDEZ}\\path"sv,  root_type::unknown_rootlike,       49,   false, },
+		{ L"\\\\?\\Volume{01234567-89AB-CDEF-0123-456789ABCDEF}_\\"sv,     root_type::unknown_rootlike,       50,   true,  },
+		{ L"\\\\?\\pipe"sv,                                                root_type::pipe,                    8,   true,  },
+		{ L"\\\\?\\pipe\\"sv,                                              root_type::pipe,                    9,   true,  },
+		{ L"\\\\?\\pipe\\path"sv,                                          root_type::pipe,                    9,   false, },
+		{ L"\\\\?\\pepe\\path"sv,                                          root_type::unknown_rootlike,        9,   false, },
+		{ L"\\\\?\\pipe_\\"sv,                                             root_type::unknown_rootlike,       10,   true,  },
+		{ L"\\\\?\\storage#volume#_??_usbstor#disk&ven_usb&prod_flash_disk&rev_1100#6&295c6d19&0#{53f56307-b6bf-11d0-94f2-00a0c91efb8b}#{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}\\"sv, root_type::unknown_rootlike, 160, true, },
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == IsRootPath(Test.Input));
+		size_t DirOffset{};
+		bool Root{};
+		REQUIRE(ParsePath(i.Str, &DirOffset, &Root) == i.Type);
+		REQUIRE(DirOffset == i.DirOffset);
+		REQUIRE(Root == i.Root);
 	}
 }
 
@@ -713,16 +798,18 @@ TEST_CASE("path.PathStartsWith")
 	}
 	Tests[]
 	{
-		{ true,  L"C:\\path\\file"sv,   L"C:\\path"sv },
-		{ true,  L"C:\\path\\file"sv,   L"C:\\path\\"sv },
-		{ false, L"C:\\path\\file"sv,   L"C:\\pat"sv },
-		{ true,  L"\\"sv,               L""sv },
-		{ false, L"C:\\path\\file"sv,   L""sv },
+		{ true,  {},                    {}                },
+		{ false, {},                    L"Q"sv            },
+		{ true,  L"\\"sv,               {}                },
+		{ false, L"C:\\path\\file"sv,   {}                },
+		{ true,  L"C:\\path\\file"sv,   L"C:\\path"sv     },
+		{ true,  L"C:\\path\\file"sv,   L"C:\\path\\"sv   },
+		{ false, L"C:\\path\\file"sv,   L"C:\\pat"sv      },
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		REQUIRE(Test.Result == PathStartsWith(Test.Path, Test.Prefix));
+		REQUIRE(i.Result == PathStartsWith(i.Path, i.Prefix));
 	}
 }
 
@@ -730,7 +817,7 @@ TEST_CASE("path.CutToParent")
 {
 	static const string_view TestRoots[]
 	{
-		L""sv,
+		{},
 		L"C:"sv,
 		L"C:\\"sv,
 		L"\\\\server\\share\\"sv,
@@ -738,6 +825,7 @@ TEST_CASE("path.CutToParent")
 		L"\\\\?\\UNC\\server\\share\\"sv,
 		L"\\\\?\\Volume{f26b206c-f912-11e1-b516-806e6f6e6963}\\"sv,
 		L"\\\\?\\pipe\\"sv,
+		L"\\\\?\\pineapple#pizza\\"sv,
 	};
 
 	static const struct
@@ -789,7 +877,7 @@ TEST_CASE("path.AddEndSlash")
 	}
 	Tests[]
 	{
-		{ L""sv,           L"\\"sv },
+		{ {},              L"\\"sv },
 		{ L"\\"sv,         L"\\"sv },
 		{ L"/"sv,          L"/"sv },
 		{ L"a"sv,          L"a\\"sv },
@@ -799,11 +887,49 @@ TEST_CASE("path.AddEndSlash")
 		{ L"a\\b/c/d"sv,   L"a\\b/c/d/"sv },
 	};
 
-	for (const auto& Test : Tests)
+	for (const auto& i: Tests)
 	{
-		string Str(Test.Input);
+		string Str(i.Input);
 		AddEndSlash(Str);
-		REQUIRE(Str == Test.Result);
+		REQUIRE(Str == i.Result);
+
+		wchar_t Buffer[64];
+		REQUIRE(i.Input.size() < std::size(Buffer));
+		*copy_string(i.Input, Buffer) = {};
+		AddEndSlash(Buffer);
+		REQUIRE(Buffer == i.Result);
+	}
+}
+
+TEST_CASE("path.DeleteEndSlash")
+{
+	static const struct
+	{
+		string_view Input, Result;
+	}
+	Tests[]
+	{
+		{ {},              {} },
+		{ L"\\"sv,         {} },
+		{ L"/"sv,          {} },
+		{ L"a"sv,          L"a"sv },
+		{ L"a\\"sv,        L"a"sv },
+		{ L"a\\\\"sv,      L"a"sv },
+		{ L"a\\b/"sv,      L"a\\b"sv },
+		{ L"a\\b/c/d"sv,   L"a\\b/c/d"sv },
+	};
+
+	for (const auto& i : Tests)
+	{
+		string Str(i.Input);
+		DeleteEndSlash(Str);
+		REQUIRE(Str == i.Result);
+
+		wchar_t Buffer[64];
+		REQUIRE(i.Input.size() < std::size(Buffer));
+		*copy_string(i.Input, Buffer) = {};
+		DeleteEndSlash(Buffer);
+		REQUIRE(Buffer == i.Result);
 	}
 }
 #endif

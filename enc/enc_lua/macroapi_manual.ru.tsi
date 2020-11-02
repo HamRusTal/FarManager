@@ -103,7 +103,7 @@ lv=2
 dt=Text
 nm=Стационарные макросы
 ctime=3580139016
-mtime=3745945507
+mtime=3785248540
 <article>
 #_<markdown>
 #_
@@ -111,17 +111,17 @@ mtime=3745945507
 #_
 #_```
 #_  Macro {
-#_    area         = "Shell Info Tree";                         -- string
-#_    key          = "CtrlF11 ShiftHome";                       -- string (опциональное поле)
-#_    description  = "Macro example";                           -- string (опциональное поле)
-#_    flags        = "NoPluginPanels EmptyCommandLine";         -- string (опциональное поле)
-#_    filemask     = "*.txt,*.cpp";                             -- string (опциональное поле)
-#_    priority     = 50;                                        -- number (опциональное поле)
-#_    sortpriority = 50;                                        -- number (опциональное поле)
-#_    selected     = true;                                      -- boolean (опциональное поле)
-#_    condition    = function(key) return Far.Height>30 end;    -- function (опциональное поле)
-#_    action       = function() msgbox("","Macro example") end; -- function
-#_    id           = "F0109446-AA63-4873-AEC3-17AEE993AA53";    -- string (опциональное поле)
+#_    area         = "Shell Info Tree";                             -- string
+#_    key          = "CtrlF11 ShiftHome";                           -- string (опциональное поле)
+#_    description  = "Macro example";                               -- string (опциональное поле)
+#_    flags        = "NoPluginPanels EmptyCommandLine";             -- string (опциональное поле)
+#_    filemask     = "*.txt,*.cpp";                                 -- string (опциональное поле)
+#_    priority     = 50;                                            -- number (опциональное поле)
+#_    sortpriority = 50;                                            -- number (опциональное поле)
+#_    selected     = true;                                          -- boolean (опциональное поле)
+#_    condition    = function(key,data) return Far.Height>30 end;   -- function (опциональное поле)
+#_    action       = function(data) msgbox("","Macro example") end; -- function
+#_    id           = "F0109446-AA63-4873-AEC3-17AEE993AA53";        -- string (опциональное поле)
 #_  }
 #_```
 #_
@@ -157,15 +157,19 @@ mtime=3745945507
 #_   макрос выполняться не будет.
 #_
 #_1. Опциональное поле `condition` - функция.
-#_   * Вызывается с одним аргументом: имя нажатого ключа.
-#_     Для автостартующих макросов - вызывается без аргументов.
+#_   * Вызывается с 2-мя аргументами:
+#_     1. Имя нажатого ключа (`nil` для автостартующих макросов)
+#_     2. Копия таблицы-аргумента функции Macro.
+#_        Одна и та же таблица-копия используется вплоть до перезагрузки макросов.
 #_   * Если возвращает `false`/`nil`/ничего, то макрос не исполняется.
 #_   * Если возвращает число, то это число используется вместо `priority`.
 #_   * При других значениях возврата (например, `true`) используется `priority`.<br><br>
 #_
 #_1. Поле `action` - функция.<br>
-#_   Если макрос успешно прошёл все предварительные проверки (область действия, флаги,
-#_   маска файла, приоритет), то вызывается функция `action`.
+#_   * Если макрос успешно прошёл все предварительные проверки (область действия, флаги,
+#_     маска файла, приоритет), то вызывается функция `action`.
+#_   * Вызывается с одним аргументом: копией таблицы-аргумента функции Macro.
+#_     Это та же самая таблица, которая передаётся вторым аргуметом в функцию `condition`.<br><br>
 #_
 #_1. Допустимо более одного макроса на сочетание (`key`,`area`). В этом случае выполняется макрос с наибольшим приоритетом. Если есть более одного макроса с одинаковым наибольшим приоритетом - выводится меню выбора макроса.<br>
 #_   Автостартующие макросы выполняются все, независимо от приоритета. Очерёдность их исполнения не определена.
@@ -233,11 +237,11 @@ lv=2
 dt=Text
 nm=Обработчики событий
 ctime=3580139337
-mtime=3734986558
+mtime=3777006554
 <article>
 #_<markdown>
 #_
-#_Как и [стационарные макросы][1], обработчики событий загружаются из Lua-файлов (расширение `*.lua`), находящихся в папке `%FARPROFILE%\Macros\scripts` и её подпапках. Каждый Lua-файл может содержать вместе и макросы, и обработчики событий.
+#_Как и [стационарные макросы][1], обработчики событий загружаются из макрофайлов (расширения `*.lua` и `*.moon`), находящихся в папке `%FARPROFILE%\Macros\scripts` и её подпапках. Каждый макрофайл может содержать вместе и макросы, и обработчики событий.
 #_
 #_Загрузка обработчика происходит при вызове глобальной функции `Event`, которой передаётся один аргумент - таблица с параметрами обработчика. При успешной загрузке функция возвращает `true`.
 #_
@@ -525,7 +529,7 @@ lv=3
 dt=Text
 nm=Пример применения
 ctime=3774015850
-mtime=3774015872
+mtime=3797419034
 <article>
 #_<markdown>
 #_```
@@ -556,7 +560,7 @@ mtime=3774015872
 #_      fp:close()
 #_      if s then
 #_        local out = {}
-#_        s = s:gsub("%s+", " "):match("[%w_].*")
+#_        s = string.gsub(s, "%s+", " ")
 #_        for k,v in ipairs(colnames) do
 #_          if col_set[v:lower()] then out[k]=s end
 #_        end
@@ -947,7 +951,7 @@ lv=2
 dt=Text
 nm=mf
 ctime=3553243522
-mtime=3773253725
+mtime=3778309747
 <article>
 #_**Свойства:** нет.
 #_
@@ -963,11 +967,12 @@ mtime=3773253725
 #_  chr                `msave`
 #_  clip               msgbox
 #_  date               `postmacro`
-#_  env                print
-#_  `eval`               `printconsole`
-#_  `exit`               prompt  
-#_  fattr              replace 
-#_  fexist             rindex    
+#_  `deserialize`        print           
+#_  env                `printconsole`
+#_  `eval`               prompt        
+#_  `exit`               replace         
+#_  fattr              rindex          
+#_  fexist             `serialize`
 #_  float              size2str  
 #_  flock              sleep     
 #_  fmatch             string    
@@ -983,6 +988,7 @@ mtime=3773253725
 #_
 #_@@@
 #_[acall]: 91.html
+#_[deserialize]: 104.html
 #_[eval]: 79.html
 #_[exit]: 61.html
 #_[GetMacroCopy]: 72.html
@@ -994,6 +1000,7 @@ mtime=3773253725
 #_[usermenu]: 69.html
 #_[AddExitHandler]: 100.html
 #_[printconsole]: 101.html
+#_[serialize]: 105.html
 #_
 #_{abs}: http://api.farmanager.com/ru/macro/macrocmd/prop_func/general.html#abs
 #_{akey}: http://api.farmanager.com/ru/macro/macrocmd/prop_func/general.html#akey
@@ -1119,6 +1126,38 @@ mtime=3770399603
 #_
 #_@@@
 #_[Ограничения в использовании некоторых функций]: 62.html
+#_
+</article>
+</node>
+<node>
+id=104
+lv=3
+dt=Text
+nm=deserialize
+ctime=3778309316
+mtime=3778309996
+<article>
+#_value, errmsg = mf.deserialize (str)
+#_
+#_**Параметры:**
+#_  str:       string
+#_
+#_**Возвращает:**
+#_  value:     number, string, boolean, table, int64 or nil.
+#_  errmsg:    nil в случае успеха, string в случае неудачи.
+#_
+#_**Описание:**
+#_  Функция *deserialize* восстанавливает ранее сериализованное значение.
+#_  Если 2-е возвращаемое значение nil, то 1-е возвращаемое значение валидно.
+#_
+#_**Примечание**
+#_  int64 - особый тип userdata, создаваемый библиотекой bit64.
+#_
+#_**См. также:**
+#_`serialize`
+#_
+#_@@@
+#_[serialize]: 105.html
 #_
 </article>
 </node>
@@ -1331,6 +1370,44 @@ mtime=3773253988
 #_  - Она вставляет символ табуляции между аргументами.
 #_  - Нет необходимости вызывать *panel.GetUserScreen()* / *panel.SetUserScreen()*,
 #_    так как функция делает это сама.
+#_
+</article>
+</node>
+<node>
+id=105
+lv=3
+dt=Text
+nm=serialize
+ctime=3778309329
+mtime=3778310038
+<article>
+#_ret = mf.serialize (value)
+#_
+#_**Параметры:**
+#_  value:     nil, boolean, number, string, table, int64
+#_
+#_**Возвращает:**
+#_  ret:       string
+#_
+#_**Описание:**
+#_  Функция *serialize* преобразует переданное значение в строку.
+#_
+#_  При сохранении таблиц будут сохраняться:
+#_     ключи типов:     number, string, boolean, table
+#_     значения типов:  number, string, boolean, table, int64
+#_
+#_  Сохраняются вложенные таблицы, при этом рекурсивные вложения корректно обрабатываются.
+#_
+#_  Сохраняется связь таблицы с её метатаблицей.
+#_
+#_**Примечание**
+#_  int64 - особый тип userdata, создаваемый библиотекой bit64.
+#_
+#_**См. также:**
+#_`deserialize`
+#_
+#_@@@
+#_[deserialize]: 104.html
 #_
 </article>
 </node>
@@ -1584,12 +1661,12 @@ lv=3
 dt=Text
 nm=LoadCustomSortMode
 ctime=3585324926
-mtime=3666994029
+mtime=3807114127
 <article>
 #_Panel.LoadCustomSortMode (Mode, Settings)
 #_
 #_**Параметры:**
-#_  Mode:         режим сортировки, целое число >=100 и <=0x7FFFFFFF
+#_  Mode:         режим сортировки, целое число >=SM_USER и <=0x7FFFFFFF
 #_  Settings:     таблица, содержит следующие поля:
 #_                  *Condition*:
 #_                     Функция. Если задана, то будет вызвана с одним аргументом - режим сортировки.
@@ -1669,7 +1746,7 @@ mtime=3666994029
 #_  *-- Загрузить сортировку по длине имени файла.*
 #_  local ffi = require "ffi"
 #_  local C = ffi.C
-#_  Panel.LoadCustomSortMode (100,
+#_  Panel.LoadCustomSortMode (SM_USER+10,
 #_    { 
 #_      Compare = function(p1, p2, opt)
 #_        local l1, l2 = C.wcslen(p1.FileName), C.wcslen(p2.FileName)
@@ -1692,12 +1769,12 @@ lv=3
 dt=Text
 nm=SetCustomSortMode
 ctime=3585499487
-mtime=3676118664
+mtime=3807114155
 <article>
 #_Panel.SetCustomSortMode (Mode, whatpanel [, order])
 #_
 #_**Параметры:**
-#_  Mode:         режим сортировки, целое число >=100 и <=0x7FFFFFFF
+#_  Mode:         режим сортировки, целое число >=SM_USER и <=0x7FFFFFFF
 #_  whatpanel:    0=активная панель, 1=пассивная панель
 #_  order:        "auto"    - стандартный выбор направления сортировки (значение по умолчанию)
 #_                "current" - сохранить текущее направление сортировки в панели
@@ -1717,7 +1794,7 @@ mtime=3676118664
 #_  Macro {
 #_    description="Sort files by their name length";
 #_    area="Shell"; key="CtrlShiftF1";
-#_    action=function() Panel.SetCustomSortMode(100,0) end;
+#_    action=function() Panel.SetCustomSortMode(SM_USER+10,0) end;
 #_  }
 #_
 #_@@@

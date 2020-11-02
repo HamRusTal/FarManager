@@ -38,6 +38,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Platform:
 #include "platform.concurrency.hpp"
+#include "platform.fwd.hpp"
 #include "platform.security.hpp"
 
 // Common:
@@ -53,7 +54,7 @@ enum ELEVATION_MODE
 {
 	ELEVATION_MODIFY_REQUEST = 0_bit,
 	ELEVATION_READ_REQUEST   = 1_bit,
-	ELEVATION_USE_PRIVILEGES = 0xf0000000,
+	ELEVATION_USE_PRIVILEGES = 31_bit
 };
 
 enum ELEVATION_COMMAND: int;
@@ -73,12 +74,12 @@ public:
 	bool copy_file(const string& From, const string& To, LPPROGRESS_ROUTINE ProgressRoutine, void* Data, BOOL* Cancel, DWORD Flags);
 	bool move_file(const string& From, const string& To, DWORD Flags);
 	bool replace_file(const string& To, const string& From, const string& Backup, DWORD Flags);
-	DWORD get_file_attributes(const string& Object);
-	bool set_file_attributes(const string& Object, DWORD FileAttributes);
+	os::fs::attributes get_file_attributes(const string& Object);
+	bool set_file_attributes(const string& Object, os::fs::attributes FileAttributes);
 	bool create_hard_link(const string& Object, const string& Target, SECURITY_ATTRIBUTES* SecurityAttributes);
 
-	bool fCreateSymbolicLink(const string& Object, const string& Target, DWORD Flags);
-	int fMoveToRecycleBin(SHFILEOPSTRUCT& FileOpStruct);
+	bool fCreateSymbolicLink(string_view Object, string_view Target, DWORD Flags);
+	bool fMoveToRecycleBin(string_view Object);
 	bool fSetOwner(const string& Object, const string& Owner);
 
 	HANDLE create_file(const string& Object, DWORD DesiredAccess, DWORD ShareMode, SECURITY_ATTRIBUTES* SecurityAttributes, DWORD CreationDistribution, DWORD FlagsAndAttributes, HANDLE TemplateFile);
@@ -120,11 +121,11 @@ private:
 	T RetrieveLastErrorAndResult() const;
 
 	bool Initialize();
-	bool ElevationApproveDlg(lng Why, const string& Object);
+	bool ElevationApproveDlg(lng Why, string_view Object);
 	void TerminateChildProcess() const;
 
 	template<typename T, typename F1, typename F2>
-	auto execute(lng Why, const string& Object, T Fallback, const F1& PrivilegedHander, const F2& ElevatedHandler);
+	auto execute(lng Why, string_view Object, T Fallback, const F1& PrivilegedHander, const F2& ElevatedHandler);
 
 	void progress_routine(LPPROGRESS_ROUTINE ProgressRoutine) const;
 

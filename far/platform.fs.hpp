@@ -53,28 +53,33 @@ namespace os::fs
 	{
 		struct find_handle_closer
 		{
-			void operator()(HANDLE Handle) const;
+			void operator()(HANDLE Handle) const noexcept;
 		};
 
 		struct find_file_handle_closer
 		{
-			void operator()(HANDLE Handle) const;
+			void operator()(HANDLE Handle) const noexcept;
 		};
 
 		struct find_volume_handle_closer
 		{
-			void operator()(HANDLE Handle) const;
+			void operator()(HANDLE Handle) const noexcept;
 		};
 
 		struct find_notification_handle_closer
 		{
-			void operator()(HANDLE Handle) const;
+			void operator()(HANDLE Handle) const noexcept;
 		};
 
 		struct file_unmapper
 		{
-			void operator()(const void* Data) const;
+			void operator()(const void* Data) const noexcept;
 		};
+	}
+
+	namespace state
+	{
+		void set_current_directory_syncronisation(bool Value);
 	}
 
 	using find_handle = os::detail::handle_t<detail::find_handle_closer>;
@@ -87,6 +92,8 @@ namespace os::fs
 	using drives_set = std::bitset<26>;
 
 	using security_descriptor = block_ptr<SECURITY_DESCRIPTOR, default_buffer_size>;
+
+	using attributes = DWORD;
 
 	struct find_data
 	{
@@ -102,7 +109,7 @@ namespace os::fs
 		unsigned long long FileSize{};
 		unsigned long long AllocationSize{};
 		unsigned long long FileId{};
-		DWORD Attributes{};
+		attributes Attributes{};
 		DWORD ReparseTag{};
 
 		[[nodiscard]]
@@ -112,25 +119,36 @@ namespace os::fs
 		bool HasAlternateFileName() const;
 	};
 
-	[[nodiscard]]
-	bool is_standard_drive_letter(wchar_t Letter);
+	namespace drive
+	{
+		[[nodiscard]]
+		bool is_standard_letter(wchar_t Letter);
 
-	[[nodiscard]]
-	int get_drive_number(wchar_t Letter);
+		[[nodiscard]]
+		size_t get_number(wchar_t Letter);
 
-	[[nodiscard]]
-	string get_drive(wchar_t Letter);
+		[[nodiscard]]
+		wchar_t get_letter(size_t Number);
 
-	[[nodiscard]]
-	string get_drive(size_t Number);
+		[[nodiscard]]
+		string get_device_path(wchar_t Letter);
 
-	[[nodiscard]]
-	string get_unc_drive(wchar_t Letter);
+		[[nodiscard]]
+		string get_device_path(size_t Number);
 
-	[[nodiscard]]
-	string get_root_directory(wchar_t Letter);
+		[[nodiscard]]
+		string get_win32nt_device_path(wchar_t Letter);
 
-	class enum_drives: public enumerator<enum_drives, wchar_t>
+		[[nodiscard]]
+		string get_root_directory(wchar_t Letter);
+
+		[[nodiscard]]
+		string get_win32nt_root_directory(wchar_t Letter);
+
+		unsigned get_type(string_view Path);
+	}
+
+	class [[nodiscard]] enum_drives: public enumerator<enum_drives, wchar_t>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_drives);
 
@@ -138,20 +156,22 @@ namespace os::fs
 		explicit enum_drives(drives_set Drives);
 
 	private:
+		[[nodiscard]]
 		bool get(bool Reset, wchar_t& Value) const;
 
 		drives_set m_Drives;
 		mutable size_t m_CurrentIndex{};
 	};
 
-	class enum_files: public enumerator<enum_files, find_data>
+	class [[nodiscard]] enum_files: public enumerator<enum_files, find_data>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_files);
 
 	public:
-		explicit enum_files(string_view Object, bool ScanSymLink = true);
+		explicit enum_files(string_view Object, bool ScanSymlink = true);
 
 	private:
+		[[nodiscard]]
 		bool get(bool Reset, find_data& Value) const;
 
 		string m_Object;
@@ -159,7 +179,7 @@ namespace os::fs
 		mutable find_file_handle m_Handle;
 	};
 
-	class enum_names: public enumerator<enum_names, string>
+	class [[nodiscard]] enum_names: public enumerator<enum_names, string>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_names);
 
@@ -167,13 +187,14 @@ namespace os::fs
 		explicit enum_names(string_view Object);
 
 	private:
+		[[nodiscard]]
 		bool get(bool Reset, string& Value) const;
 
 		string m_Object;
 		mutable find_handle m_Handle;
 	};
 
-	class enum_streams: public enumerator<enum_streams, WIN32_FIND_STREAM_DATA>
+	class [[nodiscard]] enum_streams: public enumerator<enum_streams, WIN32_FIND_STREAM_DATA>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_streams);
 
@@ -181,13 +202,14 @@ namespace os::fs
 		explicit enum_streams(string_view Object);
 
 	private:
+		[[nodiscard]]
 		bool get(bool Reset, WIN32_FIND_STREAM_DATA& Value) const;
 
 		string m_Object;
 		mutable find_file_handle m_Handle;
 	};
 
-	class enum_volumes: public enumerator<enum_volumes, string>
+	class [[nodiscard]] enum_volumes: public enumerator<enum_volumes, string>
 	{
 		IMPLEMENTS_ENUMERATOR(enum_volumes);
 
@@ -195,6 +217,7 @@ namespace os::fs
 		enum_volumes();
 
 	private:
+		[[nodiscard]]
 		bool get(bool Reset, string& Value) const;
 
 		string m_Object;
@@ -224,7 +247,7 @@ namespace os::fs
 		// TODO: half of these should be free functions
 
 		[[nodiscard]]
-		bool Open(string_view Object, DWORD DesiredAccess, DWORD ShareMode, SECURITY_ATTRIBUTES* SecurityAttributes, DWORD CreationDistribution, DWORD FlagsAndAttributes = 0, const file* TemplateFile = nullptr, bool ForceElevation = false);
+		bool Open(string_view Object, DWORD DesiredAccess, DWORD ShareMode, SECURITY_ATTRIBUTES* SecurityAttributes, DWORD CreationDistribution, attributes FlagsAndAttributes = {}, const file* TemplateFile = nullptr, bool ForceElevation = false);
 		// TODO: async overloads when needed
 
 		[[nodiscard]]
@@ -373,7 +396,7 @@ namespace os::fs
 	bool is_file(string_view Object);
 
 	[[nodiscard]]
-	bool is_file(DWORD Attributes);
+	bool is_file(attributes Attributes);
 
 	[[nodiscard]]
 	bool is_directory(file_status Status);
@@ -382,10 +405,10 @@ namespace os::fs
 	bool is_directory(string_view Object);
 
 	[[nodiscard]]
-	bool is_directory(DWORD Attributes);
+	bool is_directory(attributes Attributes);
 
 	[[nodiscard]]
-	bool is_not_empty_directory(const string& Object);
+	bool is_not_empty_directory(string_view Object);
 
 	class current_directory_guard
 	{
@@ -428,10 +451,10 @@ namespace os::fs
 		bool delete_file(const wchar_t* FileName);
 
 		[[nodiscard]]
-		DWORD get_file_attributes(const wchar_t* FileName);
+		attributes get_file_attributes(const wchar_t* FileName);
 
 		[[nodiscard]]
-		bool set_file_attributes(const wchar_t* FileName, DWORD Attributes);
+		bool set_file_attributes(const wchar_t* FileName, attributes Attributes);
 
 		[[nodiscard]]
 		bool create_hard_link(const wchar_t* FileName, const wchar_t* ExistingFileName, SECURITY_ATTRIBUTES* SecurityAttributes);
@@ -455,13 +478,16 @@ namespace os::fs
 		bool set_file_encryption(const wchar_t* FileName, bool Encrypt);
 
 		[[nodiscard]]
-		security::descriptor get_file_security(string const& Object, SECURITY_INFORMATION RequestedInformation);
+		security::descriptor get_file_security(const wchar_t* Object, SECURITY_INFORMATION RequestedInformation);
 
 		[[nodiscard]]
 		bool set_file_security(const wchar_t* Object, SECURITY_INFORMATION RequestedInformation, SECURITY_DESCRIPTOR* SecurityDescriptor);
 
 		[[nodiscard]]
 		bool reset_file_security(const wchar_t* Object);
+
+		[[nodiscard]]
+		bool move_to_recycle_bin(string_view Object);
 	}
 
 	[[nodiscard]]
@@ -488,6 +514,7 @@ namespace os::fs
 	[[nodiscard]]
 	handle create_file(string_view Object, DWORD DesiredAccess, DWORD ShareMode, SECURITY_ATTRIBUTES* SecurityAttributes, DWORD CreationDistribution, DWORD FlagsAndAttributes = 0, HANDLE TemplateFile = nullptr, bool ForceElevation = false);
 
+	[[nodiscard]]
 	bool delete_file(string_view FileName);
 
 	[[nodiscard]]
@@ -500,27 +527,28 @@ namespace os::fs
 	bool replace_file(string_view ReplacedFileName, string_view ReplacementFileName, string_view BackupFileName, DWORD Flags = 0);
 
 	[[nodiscard]]
-	DWORD get_file_attributes(string_view FileName);
-
-	bool set_file_attributes(string_view FileName, DWORD FileAttributes);
+	attributes get_file_attributes(string_view FileName);
 
 	[[nodiscard]]
-	bool GetLongPathName(const string& ShortPath, string& LongPath);
+	bool set_file_attributes(string_view FileName, attributes Attributes);
 
 	[[nodiscard]]
-	bool GetShortPathName(const string& LongPath, string& ShortPath);
+	bool GetLongPathName(string_view ShortPath, string& LongPath);
 
 	[[nodiscard]]
-	bool GetVolumeInformation(const string& RootPathName, string *pVolumeName, DWORD* VolumeSerialNumber, DWORD* MaximumComponentLength, DWORD* FileSystemFlags, string* FileSystemName);
+	bool GetShortPathName(string_view LongPath, string& ShortPath);
 
 	[[nodiscard]]
-	bool GetVolumeNameForVolumeMountPoint(const string& VolumeMountPoint, string& VolumeName);
+	bool GetVolumeInformation(string_view RootPathName, string *VolumeName, DWORD* VolumeSerialNumber, DWORD* MaximumComponentLength, DWORD* FileSystemFlags, string* FileSystemName);
+
+	[[nodiscard]]
+	bool GetVolumeNameForVolumeMountPoint(string_view VolumeMountPoint, string& VolumeName);
 
 	[[nodiscard]]
 	bool GetVolumePathNamesForVolumeName(const string& VolumeName, string& VolumePathNames);
 
 	[[nodiscard]]
-	bool QueryDosDevice(const string& DeviceName, string& Path);
+	bool QueryDosDevice(string_view DeviceName, string& Path);
 
 	[[nodiscard]]
 	bool SearchPath(const wchar_t* Path, string_view FileName, const wchar_t* Extension, string& strDest);
@@ -541,25 +569,28 @@ namespace os::fs
 	bool reset_file_security(string_view Object);
 
 	[[nodiscard]]
+	bool move_to_recycle_bin(string_view Object);
+
+	[[nodiscard]]
 	bool get_disk_size(string_view Path, unsigned long long* TotalSize, unsigned long long* TotalFree, unsigned long long* UserFree);
 
 	[[nodiscard]]
 	bool GetFileTimeSimple(string_view FileName, chrono::time_point* CreationTime, chrono::time_point* LastAccessTime, chrono::time_point* LastWriteTime, chrono::time_point* ChangeTime);
 
 	[[nodiscard]]
-	bool get_find_data(const string& FileName, find_data& FindData, bool ScanSymLink = true);
+	bool get_find_data(string_view FileName, find_data& FindData, bool ScanSymLink = true);
 
 	[[nodiscard]]
 	find_notification_handle FindFirstChangeNotification(const string& PathName, bool WatchSubtree, DWORD NotifyFilter);
 
 	[[nodiscard]]
-	bool IsDiskInDrive(const string& Root);
+	bool IsDiskInDrive(string_view Root);
 
 	[[nodiscard]]
-	bool create_hard_link(const string& FileName, const string& ExistingFileName, SECURITY_ATTRIBUTES* SecurityAttributes);
+	bool create_hard_link(string_view FileName, string_view ExistingFileName, SECURITY_ATTRIBUTES* SecurityAttributes);
 
 	[[nodiscard]]
-	bool CreateSymbolicLink(const string& SymlinkFileName, const string& TargetFileName, DWORD Flags);
+	bool CreateSymbolicLink(string_view SymlinkFileName, string_view TargetFileName, DWORD Flags);
 
 	[[nodiscard]]
 	bool set_file_encryption(string_view FileName, bool Encrypt);
@@ -568,7 +599,7 @@ namespace os::fs
 	bool detach_virtual_disk(string_view Object, VIRTUAL_STORAGE_TYPE& VirtualStorageType);
 
 	[[nodiscard]]
-	bool is_directory_reparse_point(DWORD Attributes);
+	bool is_directory_reparse_point(attributes Attributes);
 
 	[[nodiscard]]
 	bool is_directory_symbolic_link(const find_data& Data);
@@ -578,7 +609,7 @@ namespace os::fs
 
 
 	[[nodiscard]]
-	bool CreateSymbolicLinkInternal(const string& Object, const string& Target, DWORD Flags);
+	bool CreateSymbolicLinkInternal(string_view Object, string_view Target, DWORD Flags);
 
 	[[nodiscard]]
 	drives_set allowed_drives_mask();

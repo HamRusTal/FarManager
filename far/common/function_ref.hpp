@@ -43,15 +43,18 @@ template <typename return_type, typename... args>
 class function_ref<return_type(args...)> final
 {
 public:
+WARNING_PUSH()
+WARNING_DISABLE_MSC(4180) // qualifier applied to function type has no meaning; ignored
 	template<typename callable_type, REQUIRES(!std::is_same_v<std::decay_t<callable_type>, function_ref>)>
 	function_ref(const callable_type& Callable) noexcept:
-		m_Ptr(&Callable),
-		m_ErasedFn([](const void* Ptr, args... Args) -> return_type
+		m_Ptr(const_cast<void*>(reinterpret_cast<const void*>(&Callable))),
+		m_ErasedFn([](void* Ptr, args... Args) -> return_type
 		{
-			return std::invoke(*static_cast<const callable_type*>(Ptr), FWD(Args)...);
+			return std::invoke(*reinterpret_cast<const callable_type*>(Ptr), FWD(Args)...);
 		})
 	{
 	}
+WARNING_POP()
 
 	function_ref(std::nullptr_t) noexcept:
 		m_Ptr(),
@@ -71,9 +74,9 @@ public:
 	}
 
 private:
-	using signature_type = return_type(const void*, args...);
+	using signature_type = return_type(void*, args...);
 
-	const void* m_Ptr;
+	void* m_Ptr;
 	signature_type* m_ErasedFn;
 };
 

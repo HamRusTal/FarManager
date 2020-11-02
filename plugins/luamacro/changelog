@@ -1,4 +1,250 @@
-﻿shmuel 03.09.2019 13:44:25 +0200 - build 704
+shmuel 09.09.2020 21:29:21 +0300 - build 760
+
+1. LuaFAR: continued 751 (minor changes).
+
+shmuel 06.09.2020 22:56:38 +0300 - build 759
+
+1. LuaFAR: revert 756.
+
+shmuel 05.09.2020 16:53:54 +0300 - build 758
+
+1. LuaFAR: continued 751.
+
+shmuel 31.08.2020 12:07:03 +0300 - build 757
+
+1. LuaFAR: continued 751.
+
+shmuel 26.08.2020 17:44:40 +0200 - build 756
+
+1. LuaFAR: refactoring.
+
+shmuel 20.08.2020 20:11:34 +0300 - build 755
+
+1. Correct argument safety check in LoadCustomSortMode().
+
+shmuel 20.08.2020 19:28:27 +0300 - build 754
+
+1. Revert changes (except farapi.lua) made in 753.
+
+drkns 19.08.2020 22:34:11 +0100 - build 753
+
+1. Adaptation to Far 3.0.5655.
+
+shmuel 15.08.2020 21:20:57 +0300 - build 752
+
+1. LuaFAR: VS warning + whitespace formatting.
+
+shmuel 01.08.2020 14:45:37 +0200 - build 751
+
+1. LuaFAR: preparations for search in plugins' directories.
+
+shmuel 06.07.2020 11:48:04 +0300 - build 750
+
+1. Minor fix related to build 738.
+
+shmuel 21.05.2020 15:21:20 +0300 - build 749
+
+1. Show traceback when error is thrown from ExitFAR event handler.
+
+zg 18.05.2020 23:28:55 +0300 - build 748
+
+1. откат 747.
+
+zg 18.05.2020 18:30:29 +0300 - build 747
+
+1. experimental "FolderChanged" event.
+
+shmuel 07.05.2020 22:58:33 +0300 - build 746
+
+1. LuaFAR: refactoring.
+
+shmuel 05.05.2020 23:27:35 +0300 - build 745
+
+1. LuaFAR: make tPluginPanelItem.UserData accessible from coroutines (and therefore macros).
+
+shmuel 03.05.2020 14:12:01 +0200 - build 744
+
+1. Minor fix related to build 738.
+
+shmuel 26.04.2020 19:59:14 +0200 - build 743
+
+1. Refactoring.
+
+shmuel 25.04.2020 21:24:46 +0200 - build 742
+
+1. Fix build 741.
+
+shmuel 25.04.2020 18:44:02 +0200 - build 741
+
+1. Minor fixes and refactoring.
+
+shmuel 24.04.2020 21:12:21 +0200 - build 740
+
+1. GCC warnings + micro-refactoring.
+
+shmuel 19.04.2020 11:22:12 +0200 - build 739
+
+1. LuaFAR: fix GCC warnings from appveyor.
+
+shmuel 10.04.2020 21:59:24 +0200 - build 738
+
+1. LuaFAR: update luautf8 library to release 0.1.2.
+
+shmuel 30.03.2020 15:14:49 +0200 - build 737
+
+1. LuaFAR: add file:read("*b") - read binary line.
+
+shmuel 04.03.2020 16:14:42 +0200 - build 736
+
+1. LuaFAR: win.CreateDir() preserves trailing spaces.
+
+shmuel 03.03.2020 13:29:18 +0200 - build 735
+
+1. LuaFAR: fix win.XX functions dependent on FileTimeResolution broken since build 704
+   (they were broken only when luafar3.dll was used outside Far Manager).
+
+shmuel 02.03.2020 19:10:27 +0200 - build 734
+
+1. LuaFAR: added function far.GetLuafarVersion.
+   luafar3.dll and luamacro.dll will share the same version within any given Far Manager build.
+
+shmuel 01.03.2020 22:01:50 +0200 - build 733
+
+1. LuaFAR: more 730.1 (win.FileTimeToSystemTime).
+
+shmuel 17.02.2020 08:06:24 +0200 - build 732
+
+1. LuaFAR: allow 64-bit range for floating point arguments where 64-bit integers expected
+           (was: 53 bits allowed).
+
+2. LuaFAR (generic plugin): fix a nasty pointer arithmetics bug in SetStartupInfoW().
+
+shmuel 15.02.2020 19:31:22 +0200 - build 731
+
+1. Fix build 730.1.
+
+shmuel 15.02.2020 18:50:58 +0200 - build 730
+
+LuaFAR:
+
+1. bit64-library functions (and some other functions, e.g. win.SetFileTimes)
+   accept string parameters if they are convertible to 64-bit integers.
+
+2. Added 'tonumber' method to bit64-userdata.
+
+3. A fix in win.FileTimeToLocalFileTime function.
+
+shmuel 15.02.2020 08:50:10 +0200 - build 729
+
+1. LuaFAR: added functions win.GetFileTimes and win.SetFileTimes.
+
+shmuel 08.02.2020 18:14:28 +0200 - build 728
+
+1. LuaFAR: fix far.Message() - when the 3-rd argument was ";Yes;No"
+           the function immediately returned 1 with no dialog shown.
+
+shmuel 07.02.2020 21:52:13 +0200 - build 727
+
+1. LuaFAR: add function far.FreeScreen.
+
+shmuel 02.02.2020 21:14:03 +0200 - build 726
+
+1. Macro Browser: Ctrl+R reloads macrofiles and updates the browser menu.
+
+shmuel 26.01.2020 20:48:33 +0200 - build 725
+
+1. LuaFAR: extend struct LuafarAPI with 3 bit64_XX() functions.
+
+shmuel 20.01.2020 18:03:08 +0200 - build 724
+
+1. LuaFAR: refactoring.
+
+shmuel 20.01.2020 14:31:27 +0200 - build 723
+
+1. LuaFAR: revert 721.2: panel.XX functions accept PANEL_ACTIVE/PANEL_PASSIVE in the 1-st argument again.
+
+shmuel 20.01.2020 12:31:55 +0200 - build 722
+
+1. LuaFAR: fix LF_GetFindData/LF_FreeFindData (the bug existed from the very beginning).
+
+shmuel 30.12.2019 16:05:03 +0200 - build 721
+
+1. A fix in GetOpenPanelInfo() for LuaMacro panel modules.
+
+2. LuaFAR: minor refactoring.
+
+shmuel 29.12.2019 18:35:07 +0200 - build 720
+
+1. LuaFAR: a minor fix in MakeDirectoryW.
+
+shmuel 16.12.2019 14:23:15 +0200 - build 719
+
+1. LuaFAR: fix utf8.charpattern.
+
+shmuel 08.12.2019 09:31:15 +0200 - build 718
+
+1. Refactor build 717.
+
+shmuel 07.12.2019 23:34:24 +0200 - build 717
+
+1. Regular macros: functions condition() and action() receive an additional argument - a table.
+   This table can be used for keeping and modifying data that are private to the macro.
+   It is initialized by the content of a table-argument received by function Macro.
+
+2. Regular macros: arbitrary non-standard fields are allowed, they will be copied to the table
+   described in the above paragraph.
+
+shmuel 04.12.2019 18:01:32 +0200 - build 716
+
+1. LuaFAR: far.GetMsg() accepts the optional 2-nd parameter (PluginId).
+
+shmuel 23.11.2019 19:16:02 +0200 - build 715
+
+1. LuaFAR: far.RecursiveSearch():
+   Extend syntax of "Mask" parameter to optionally include file attributes after >> delimiter.
+
+shmuel 30.10.2019 22:19:18 +0200 - build 714
+
+1. Support throwing Lua errors from macro-API code in Far.exe (starting from build 5502).
+
+shmuel 26.10.2019 21:11:29 +0200 - build 713
+
+1. LuaFAR: a fix in win.IsWinVersion().
+
+shmuel 26.10.2019 17:01:59 +0200 - build 712
+
+1. LuaFAR: added function win.IsWinVersion().
+
+shmuel 21.10.2019 11:43:16 +0200 - build 711
+
+1. Panel.Item(X,Idx,10) - property 'SortGroup' - returns again a number rather than a boolean.
+   Returning a boolean was a bug.
+
+shmuel 20.10.2019 13:08:07 +0200 - build 710
+
+1. Panel.Item(X,Idx,8) and Panel.Item(X,Idx,10) given invalid Idx returned 0 now they return false.
+
+shmuel 17.10.2019 08:28:50 +0200 - build 709
+
+1. LuaFAR: make return value of DN_KILLFOCUS 1-based and refactor function ProcessDNResult().
+
+shmuel 12.10.2019 13:45:55 +0200 - build 708
+
+1. LuaFAR: cosmetic changes.
+
+shmuel 25.09.2019 10:17:41 +0200 - build 707
+
+1. LuaFAR: fix require('luafar3') that was broken since build 699.
+
+shmuel 22.09.2019 10:55:23 +0200 - build 706
+
+1. Add functions mf.serialize, mf.deserialize.
+
+shmuel 05.09.2019 03:23:04 +0200 - build 705
+
+1. Generic plugin: prevent stack overflow in GetContentDataW calls due to error/message box.
+
+shmuel 03.09.2019 13:44:25 +0200 - build 704
 
 1. LuaFAR:
    New function far.FileTimeResolution(). This function can set current resolution of time values

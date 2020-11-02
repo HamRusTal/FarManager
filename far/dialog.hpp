@@ -123,7 +123,7 @@ struct DialogItemEx: public FarDialogItem
 		FARDIALOGITEMFLAGS Checked3Set, FARDIALOGITEMFLAGS Checked3Skip);
 };
 
-bool IsKeyHighlighted(string_view Str, int Key, int Translate, int AmpPos = -1);
+bool IsKeyHighlighted(string_view Str, int Key, bool Translate, wchar_t CharKey = {});
 void ItemsToItemsEx(span<const FarDialogItem> Items, span<DialogItemEx> ItemsEx, bool Short = false);
 
 
@@ -140,6 +140,15 @@ struct InitDialogItem
 };
 
 std::vector<DialogItemEx> MakeDialogItems(span<const InitDialogItem> Items);
+
+template<size_t Size, size_t N>
+std::vector<DialogItemEx> MakeDialogItems(InitDialogItem const (&Items)[N])
+{
+	static_assert(Size == N);
+
+	return MakeDialogItems(Items);
+}
+
 
 class DlgEdit;
 class Plugin;
@@ -218,16 +227,16 @@ public:
 	void ClearDone();
 	intptr_t CloseDialog();
 	// For MACRO
-	const std::vector<DialogItemEx>& GetAllItem() const { return Items; }
+	const auto& GetAllItem() const { return Items; }
 	size_t GetDlgFocusPos() const {return m_FocusPos;}
 	int SetAutomation(WORD IDParent,WORD id, FARDIALOGITEMFLAGS UncheckedSet,FARDIALOGITEMFLAGS UncheckedSkip, FARDIALOGITEMFLAGS CheckedSet,FARDIALOGITEMFLAGS CheckedSkip,
 		FARDIALOGITEMFLAGS Checked3Set=DIF_NONE,FARDIALOGITEMFLAGS Checked3Skip=DIF_NONE);
 
 	intptr_t DlgProc(intptr_t Msg,intptr_t Param1,void* Param2);
 	bool IsInited() const;
-	void SetId(const GUID& Id);
-	const GUID& GetId() const {return m_Id;}
-	intptr_t SendMessage(intptr_t Msg,intptr_t Param1,void* Param2);
+	void SetId(const UUID& Id);
+	const UUID& GetId() const {return m_Id;}
+	virtual intptr_t SendMessage(intptr_t Msg,intptr_t Param1,void* Param2);
 	intptr_t DefProc(intptr_t Msg,intptr_t Param1,void* Param2);
 	int GetDropDownOpened() const { return DropDownOpened; }
 	bool IsRedrawEnabled() const { return m_DisableRedraw == 0; }
@@ -256,7 +265,7 @@ public:
 	};
 
 protected:
-	size_t InitDialogObjects(size_t ID = (size_t)-1);
+	void InitDialogObjects(size_t ID = static_cast<size_t>(-1));
 
 private:
 	friend class History;
@@ -272,28 +281,28 @@ private:
 	void Construct(span<const FarDialogItem> SrcItems);
 	void Init();
 	void DeleteDialogObjects();
-	int LenStrItem(size_t ID, const string& Str) const;
+	int LenStrItem(size_t ID, string_view Str) const;
 	int LenStrItem(size_t ID);
 	int LenStrItem(const DialogItemEx& Item);
-	void ShowDialog(size_t ID=(size_t)-1);  //    ID=-1 - отрисовать весь диалог
+	void ShowDialog(size_t ID=static_cast<size_t>(-1));  //    ID=-1 - отрисовать весь диалог
 	intptr_t CtlColorDlgItem(FarColor Color[4], size_t ItemPos, FARDIALOGITEMTYPES Type, bool Focus, bool Default,FARDIALOGITEMFLAGS Flags);
 	/* $ 28.07.2000 SVS
 		+ Изменяет фокус ввода между двумя элементами.
 		    Вынесен отдельно для того, чтобы обработать DMSG_KILLFOCUS & DMSG_SETFOCUS
 	*/
 	void ChangeFocus2(size_t SetFocusPos);
-	size_t ChangeFocus(size_t FocusPos, int Step, bool SkipGroup) const;
-	bool SelectFromEditHistory(const DialogItemEx *CurItem, DlgEdit *EditLine, const string& HistoryName);
+	size_t ChangeFocus(size_t CurFocusPos, int Step, bool SkipGroup) const;
+	bool SelectFromEditHistory(DialogItemEx const* CurItem, DlgEdit* EditLine, string_view HistoryName);
 	int SelectFromComboBox(DialogItemEx *CurItem,DlgEdit*EditLine);
-	bool AddToEditHistory(const DialogItemEx* CurItem, const string& AddStr) const;
+	bool AddToEditHistory(DialogItemEx const* CurItem, string_view AddStr) const;
 	void ProcessLastHistory(DialogItemEx *CurItem, int MsgIndex);  // обработка DIF_USELASTHISTORY
-	bool ProcessHighlighting(int Key,size_t FocusPos,int Translate);
-	int CheckHighlights(WORD Chr,int StartPos=0);
+	bool ProcessHighlighting(int Key, size_t FocusPos, bool Translate);
+	int CheckHighlights(WORD CheckSymbol, int StartPos = 0);
 	void SelectOnEntry(size_t Pos, bool Selected);
 	void CheckDialogCoord();
 	bool GetItemRect(size_t I,SMALL_RECT& Rect);
 	bool SetItemRect(size_t ID, const SMALL_RECT& Rect);
-	bool SetItemRect(DialogItemEx& item, const SMALL_RECT& Rect);
+	bool SetItemRect(DialogItemEx& Item, const SMALL_RECT& Rect);
 	void SetDropDownOpened(int Status) { DropDownOpened=Status; }
 	void ProcessCenterGroup();
 	size_t ProcessRadioButton(size_t CurRB, bool UncheckAll);
@@ -334,7 +343,7 @@ private:
 	int DropDownOpened{}; // Содержит статус комбобокса и хистори: TRUE - открыт, FALSE - закрыт.
 	int RealWidth{};
 	int RealHeight{};
-	GUID m_Id{};
+	UUID m_Id{};
 	bool IdExist{};
 	MOUSE_EVENT_RECORD PrevMouseRecord{};
 	string m_ConsoleTitle;

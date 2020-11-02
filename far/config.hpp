@@ -59,6 +59,41 @@ struct equal_icase_t;
 struct column;
 struct FARConfigItem;
 
+enum class panel_sort: int
+{
+	UNSORTED,
+	BY_NAME,
+	BY_EXT,
+	BY_MTIME,
+	BY_CTIME,
+	BY_ATIME,
+	BY_SIZE,
+	BY_DIZ,
+	BY_OWNER,
+	BY_COMPRESSEDSIZE,
+	BY_NUMLINKS,
+	BY_NUMSTREAMS,
+	BY_STREAMSSIZE,
+	BY_NAMEONLY,
+	BY_CHTIME,
+
+	COUNT,
+
+	BY_USER = 100000
+};
+
+enum class sort_order: int
+{
+	first,
+
+	flip_or_default = first,
+	keep,
+	ascend,
+	descend,
+
+	last = descend
+};
+
 enum
 {
 	CASR_PANEL  = 0_bit,
@@ -106,7 +141,7 @@ enum DIZUPDATETYPE
 enum disk_menu_mode
 {
 	DRIVE_SHOW_TYPE              = 0_bit,
-	DRIVE_SHOW_PATH              = 1_bit,
+	DRIVE_SHOW_ASSOCIATED_PATH   = 1_bit,
 	DRIVE_SHOW_LABEL             = 2_bit,
 	DRIVE_SHOW_FILESYSTEM        = 3_bit,
 	DRIVE_SHOW_SIZE              = 4_bit,
@@ -117,6 +152,8 @@ enum disk_menu_mode
 	DRIVE_SHOW_REMOTE            = 9_bit,
 	DRIVE_SORT_PLUGINS_BY_HOTKEY = 10_bit,
 	DRIVE_SHOW_LABEL_USE_SHELL   = 11_bit,
+	DRIVE_SHOW_VIRTUAL           = 12_bit,
+	DRIVE_SHOW_UNMOUNTED_VOLUMES = 13_bit,
 };
 
 class Option
@@ -143,8 +180,8 @@ public:
 	bool Changed() const { return m_Value.touched(); }
 
 protected:
-	Option(const Option&) = default;
-	Option& operator=(const Option&) = default;
+	COPY_CONSTRUCTIBLE(Option);
+	COPY_ASSIGNABLE_DEFAULT(Option);
 
 	template<class T>
 	explicit Option(const T& Value): m_Value(Value) {}
@@ -194,19 +231,21 @@ namespace option
 	template<typename callable>
 	auto validator(callable&& Callable)
 	{
-		return overload(
-			[Callable =FWD(Callable)](validator_tag, const auto& Value){ return Callable(Value); },
+		return overload
+		{
+			[Callable = FWD(Callable)](validator_tag, const auto& Value){ return Callable(Value); },
 			[](notifier_tag, const auto&){}
-		);
+		};
 	}
 
 	template<typename callable>
 	auto notifier(callable&& Callable)
 	{
-		return overload(
+		return overload
+		{
 			[](validator_tag, const auto& Value){ return Value; },
 			[Callable = FWD(Callable)](notifier_tag, const auto& Value){ Callable(Value); }
-		);
+		};
 	}
 }
 
@@ -224,7 +263,11 @@ namespace detail
 			void(option::notifier_tag, const base_type&)
 		>;
 
-		void SetCallback(const callback_type& Callback) { m_Callback = Callback; }
+		void SetCallback(const callback_type& Callback)
+		{
+			assert(!m_Callback);
+			m_Callback = Callback;
+		}
 
 		[[nodiscard]]
 		const auto& Get() const { return GetT<base_type>(); }
@@ -411,7 +454,7 @@ public:
 	bool AdvancedConfig(config_type Mode = config_type::roaming);
 	void LocalViewerConfig(ViewerOptions &ViOptRef) {return ViewerConfig(ViOptRef, true);}
 	void LocalEditorConfig(EditorOptions &EdOptRef) {return EditorConfig(EdOptRef, true);}
-	static void SetSearchColumns(const string& Columns, const string& Widths);
+	void SetSearchColumns(string_view Columns, string_view Widths);
 
 	struct SortingOptions
 	{
@@ -701,6 +744,7 @@ public:
 		BoolOption CopyOpened;            // копировать открытые на запись файлы
 		BoolOption CopyShowTotal;         // показать общий индикатор копирования
 		BoolOption MultiCopy;             // "разрешить мультикопирование/перемещение/создание связей"
+		BoolOption PreserveTimestamps;
 		IntOption CopySecurityOptions; // для операции Move - что делать с опцией "Copy access rights"
 		IntOption CopyTimeRule;          // $ 30.01.2001 VVM  Показывает время копирования,оставшееся время и среднюю скорость
 		IntOption BufferSize;
@@ -721,7 +765,7 @@ public:
 		StringOption strKeyMacroCtrlDot, strKeyMacroRCtrlDot; // аля KEY_CTRLDOT/KEY_RCTRLDOT
 		StringOption strKeyMacroCtrlShiftDot, strKeyMacroRCtrlShiftDot; // аля KEY_CTRLSHIFTDOT/KEY_RCTRLSHIFTDOT
 		// internal
-		DWORD
+		unsigned
 			KeyMacroCtrlDot{},
 			KeyMacroRCtrlDot{},
 			KeyMacroCtrlShiftDot{},
@@ -732,20 +776,19 @@ public:
 
 	struct KnownModulesIDs
 	{
-		struct GuidOption
+		struct UuidOption
 		{
-			GUID Id{};
+			UUID Id{};
 			StringOption StrId;
 			string_view Default;
-		};
-
-		GuidOption Network;
-		GuidOption Emenu;
-		GuidOption Arclite;
-		GuidOption Luamacro;
-		GuidOption Netbox;
-		GuidOption ProcList;
-		GuidOption TmpPanel;
+		}
+		Network,
+		Emenu,
+		Arclite,
+		Luamacro,
+		Netbox,
+		ProcList,
+		TmpPanel;
 	};
 
 	struct ExecuteOptions
@@ -783,7 +826,8 @@ public:
 	BoolOption ShowBytes;
 
 	BoolOption SelectFolders;
-	BoolOption ReverseSort;
+	BoolOption AllowReverseSort;
+	BoolOption ReverseSortCharCompat;
 	BoolOption SortFolderExt;
 	BoolOption DeleteToRecycleBin;
 	IntOption WipeSymbol; // символ заполнитель для "ZAP-операции"
@@ -861,6 +905,7 @@ public:
 
 	StringOption strLanguage;
 	BoolOption SetIcon;
+	IntOption IconIndex;
 	BoolOption SetAdminIcon;
 	IntOption PanelRightClickRule;
 	IntOption PanelCtrlAltShiftRule;
@@ -950,7 +995,6 @@ public:
 	BoolOption ScanJunction;
 
 	IntOption RedrawTimeout;
-	IntOption DelThreadPriority; // приоритет процесса удаления, по умолчанию = THREAD_PRIORITY_NORMAL
 
 	LoadPluginsOptions LoadPlug;
 
@@ -1003,6 +1047,8 @@ public:
 	BoolOption WindowModeStickyX;
 	BoolOption WindowModeStickyY;
 
+	std::vector<std::vector<std::pair<panel_sort, sort_order>>> PanelSortLayers;
+
 	const std::vector<PanelViewSettings>& ViewSettings;
 
 	class farconfig;
@@ -1036,6 +1082,8 @@ private:
 	void ReadPanelModes();
 	void SavePanelModes(bool always);
 	void SetDriveMenuHotkeys();
+	void ReadSortLayers();
+	void SaveSortLayers(bool Always);
 
 	std::vector<farconfig> m_Configs;
 	std::vector<PanelViewSettings> m_ViewSettings;
@@ -1045,6 +1093,6 @@ private:
 string GetFarIniString(string_view AppName, string_view KeyName, string_view Default);
 int GetFarIniInt(string_view AppName, string_view KeyName, int Default);
 
-std::chrono::steady_clock::duration GetRedrawTimeout();
+std::chrono::steady_clock::duration GetRedrawTimeout() noexcept;
 
 #endif // CONFIG_HPP_E468759B_688C_4D45_A5BA_CF1D4FCC9A08

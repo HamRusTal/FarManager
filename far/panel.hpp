@@ -115,38 +115,13 @@ enum class panel_mode
 	PLUGIN_PANEL
 };
 
-enum class panel_sort
-{
-	UNSORTED,
-	BY_NAME,
-	BY_EXT,
-	BY_MTIME,
-	BY_CTIME,
-	BY_ATIME,
-	BY_SIZE,
-	BY_DIZ,
-	BY_OWNER,
-	BY_COMPRESSEDSIZE,
-	BY_NUMLINKS,
-	BY_NUMSTREAMS,
-	BY_STREAMSSIZE,
-	BY_FULLNAME,
-	BY_CHTIME,
+enum class panel_sort: int;
+enum class sort_order: int;
 
-	COUNT
-};
-
-enum sort_order
-{
-	SO_AUTO,
-	SO_KEEPCURRENT,
-	SO_DIRECT,
-	SO_REVERSE,
-};
+span<std::pair<panel_sort, sort_order> const> default_sort_layers(panel_sort SortMode);
 
 class VMenu2;
 class Edit;
-struct PanelMenuItem;
 class Viewer;
 class FilePanels;
 
@@ -183,15 +158,15 @@ public:
 	virtual int GetColumnsCount() const { return 1;}
 	virtual void SetReturnCurrentFile(bool Mode) {}
 	virtual void QViewDelTempName() {}
-	virtual void GetOpenPanelInfo(OpenPanelInfo *Info) const {}
-	virtual void SetPluginMode(std::unique_ptr<plugin_panel>&& hPlugin,const string& PluginFile,bool SendOnFocus=false) {}
+	virtual void GetOpenPanelInfo(OpenPanelInfo* Info) const;
+	virtual void SetPluginMode(std::unique_ptr<plugin_panel>&& hPlugin, string_view PluginFile, bool SendOnFocus = false) {}
 	virtual void SetPluginModified() {}
 	virtual bool ProcessPluginEvent(int Event,void *Param) {return false;}
 	virtual plugin_panel* GetPluginHandle() const {return nullptr;}
 	virtual void RefreshTitle();
 	virtual string GetTitle() const;
 	virtual bool SendKeyToPlugin(DWORD Key,bool Pred=false) {return false;}
-	virtual bool SetCurDir(const string& NewDir,bool ClosePanel,bool IsUpdated=true);
+	virtual bool SetCurDir(string_view NewDir, bool ClosePanel, bool IsUpdated = true, bool Silent = false);
 	virtual void ChangeDirToCurrent();
 	virtual const string& GetCurDir() const;
 	virtual size_t GetSelCount() const { return 0; }
@@ -200,24 +175,25 @@ public:
 	virtual void ClearLastGetSelection() {}
 	virtual bool GetCurName(string &strName, string &strShortName) const;
 	virtual bool GetCurBaseName(string &strName, string &strShortName) const;
-	virtual bool GetFileName(string &strName, int Pos, DWORD &FileAttr) const { return false; }
+	virtual bool GetFileName(string& strName, int Pos, os::fs::attributes& FileAttr) const { return false; }
+	virtual const std::unordered_set<string>* GetFilteredExtensions() const { return {}; }
 	virtual int GetCurrentPos() const {return 0;}
 	virtual bool IsFocused() const;
 	virtual void OnFocusChange(bool Get);
 	virtual void Update(int Mode) = 0;
-	virtual bool UpdateIfChanged(bool Idle) {return false;}
+	virtual void UpdateIfChanged(bool Idle) {}
 	virtual void UpdateIfRequired() {}
 	virtual void StartFSWatcher(bool got_focus=false, bool check_time=true) {}
 	virtual void StopFSWatcher() {}
-	virtual bool FindPartName(const string& Name,int Next,int Direct=1) {return false;}
+	virtual bool FindPartName(string_view Name,int Next,int Direct=1) {return false;}
 	virtual bool GetPlainString(string& Dest, int ListPos) const { return false; }
 	virtual bool GoToFile(long idxItem) {return true;}
 	virtual bool GoToFile(string_view Name, bool OnlyPartName = false) {return true;}
 	virtual long FindFile(string_view Name, bool OnlyPartName = false) {return -1;}
-	virtual bool IsSelected(const string& Name) {return false;}
+	virtual bool IsSelected(string_view Name) {return false;}
 	virtual bool IsSelected(size_t indItem) {return false;}
-	virtual long FindFirst(const string& Name) {return -1;}
-	virtual long FindNext(int StartPos, const string& Name) {return -1;}
+	virtual long FindFirst(string_view Name) {return -1;}
+	virtual long FindNext(int StartPos, string_view Name) {return -1;}
 	virtual void SetSelectedFirstMode(bool) {}
 	virtual bool GetSelectedFirstMode() const { return false; }
 	virtual void SetViewMode(int ViewMode);
@@ -228,16 +204,14 @@ public:
 	virtual void ChangeDirectoriesFirst(bool Mode) { SetDirectoriesFirst(Mode); }
 	virtual void OnSortingChange() {}
 	virtual void SetSortMode(panel_sort Mode, bool KeepOrder = false) { m_SortMode = Mode; }
-	virtual void SetCustomSortMode(int SortMode, sort_order Order = SO_AUTO, bool InvertByDefault = false) {}
+	virtual void SetCustomSortMode(panel_sort Mode, sort_order Order, bool InvertByDefault) {}
 	virtual void ChangeSortOrder(bool Reverse) {SetSortOrder(Reverse);}
-	virtual void IfGoHome(wchar_t Drive) {}
+	virtual void GoHome(string_view const Drive) {}
 	virtual void UpdateKeyBar() = 0;
 	virtual size_t GetFileCount() const { return 0; }
 	virtual Viewer* GetViewer() {return nullptr;}
 	virtual Viewer* GetById(int ID) { return nullptr;}
 	virtual void OnDestroy() {}
-
-	static void exclude_sets(string& mask);
 
 	panel_mode GetMode() const { return m_PanelMode; }
 	void SetMode(panel_mode Mode) { m_PanelMode = Mode; }
@@ -253,9 +227,9 @@ public:
 	void SetSortGroups(bool Mode) {m_SortGroups=Mode;}
 	bool GetShowShortNamesMode() const { return m_ShowShortNames; }
 	void SetShowShortNamesMode(bool Mode) {m_ShowShortNames=Mode;}
-	void InitCurDir(const string& CurDir);
+	void InitCurDir(string_view CurDir);
 	bool ExecShortcutFolder(int Pos);
-	bool ExecShortcutFolder(string strShortcutFolder, const GUID& PluginGuid, const string& strPluginFile, const string& strPluginData, bool CheckType, bool TryClosest = true, bool Silent = false);
+	bool ExecFolder(string_view Folder, const UUID& PluginUuid, const string& strPluginFile, const string& strPluginData, bool CheckType, bool TryClosest, bool Silent);
 	bool SaveShortcutFolder(int Pos) const;
 	int SetPluginCommand(int Command,int Param1,void* Param2);
 	bool ProcessMouseDrag(const MOUSE_EVENT_RECORD* MouseEvent);
@@ -310,10 +284,10 @@ private:
 		string ShortcutFolder;
 		string PluginFile;
 		string PluginData;
-		GUID PluginGuid;
+		UUID PluginUuid;
 	};
 	bool GetShortcutInfo(ShortcutInfo& Info) const;
-	bool SetPluginDirectory(const string& strDirectory, bool Silent);
+	bool SetPluginDirectory(string_view Directory, bool Silent);
 
 	static void DragMessage(int X,int Y,int Move);
 
@@ -323,7 +297,7 @@ protected:
 	panel_type m_Type = panel_type::FILE_PANEL;
 	int m_EnableUpdate = TRUE;
 	panel_mode m_PanelMode = panel_mode::NORMAL_PANEL;
-	panel_sort m_SortMode = panel_sort::UNSORTED;
+	panel_sort m_SortMode{};
 	bool m_ReverseSortOrder = false;
 	bool m_SortGroups = false;
 	int m_PrevViewMode = VIEW_3;
@@ -351,5 +325,8 @@ private:
 	void Update(int Mode) override {}
 	void UpdateKeyBar() override {}
 };
+
+int internal_sort_mode_to_plugin(panel_sort Mode);
+panel_sort plugin_sort_mode_to_internal(int Mode);
 
 #endif // PANEL_HPP_FFA15B35_5546_4AA9_84B2_B60D8AA904C7

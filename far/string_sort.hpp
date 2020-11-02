@@ -43,6 +43,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //----------------------------------------------------------------------------
 
+class SQLiteDb;
+
 namespace string_sort
 {
 	// Default comparison enrty point.
@@ -65,6 +67,12 @@ namespace string_sort
 		{
 			return less(Str1, Str2);
 		}
+	};
+
+	class keyhole
+	{
+		friend SQLiteDb;
+		static int compare_ordinal_numeric(string_view Str1, string_view Str2);
 	};
 }
 

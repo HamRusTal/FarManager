@@ -31,6 +31,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "platform.hpp"
 
@@ -38,7 +41,6 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "imports.hpp"
 #include "pathmix.hpp"
 #include "string_utils.hpp"
-#include "lasterror.hpp"
 #include "exception.hpp"
 
 // Platform:
@@ -46,8 +48,8 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "platform.memory.hpp"
 
 // Common:
+#include "common/algorithm.hpp"
 #include "common/range.hpp"
-#include "common/scope_exit.hpp"
 #include "common/string_utils.hpp"
 
 // External:
@@ -64,15 +66,9 @@ namespace os
 			return Handle == INVALID_HANDLE_VALUE? nullptr : Handle;
 		}
 
-		void handle_implementation::wait(HANDLE const Handle)
+		bool handle_implementation::wait(HANDLE const Handle, std::optional<std::chrono::milliseconds> const Timeout)
 		{
-			WaitForSingleObject(Handle, INFINITE);
-		}
-
-		bool handle_implementation::is_signaled(HANDLE const Handle, std::chrono::milliseconds const Timeout)
-		{
-			const auto Result = WaitForSingleObject(Handle, Timeout.count());
-			switch (Result)
+			switch (const auto Result = WaitForSingleObject(Handle, Timeout? *Timeout / 1ms : INFINITE))
 			{
 			case WAIT_OBJECT_0:
 				return true;
@@ -81,16 +77,39 @@ namespace os
 				return false;
 
 			default:
+				// Abandoned or error
 				throw MAKE_FAR_FATAL_EXCEPTION(format(FSTR(L"WaitForSingleobject returned {0}"), Result));
 			}
 		}
 
-		void handle_closer::operator()(HANDLE Handle) const
+		std::optional<size_t> handle_implementation::wait(span<HANDLE const> const Handles, bool const WaitAll, std::optional<std::chrono::milliseconds> Timeout)
+		{
+			assert(!Handles.empty());
+			assert(Handles.size() <= MAXIMUM_WAIT_OBJECTS);
+
+			const auto Result = WaitForMultipleObjects(static_cast<DWORD>(Handles.size()), Handles.data(), WaitAll, Timeout? *Timeout / 1ms : INFINITE);
+
+			if (in_closed_range<size_t>(WAIT_OBJECT_0, Result, WAIT_OBJECT_0 + Handles.size() - 1))
+			{
+				return Result - WAIT_OBJECT_0;
+			}
+			else if (Result == WAIT_TIMEOUT)
+			{
+				return {};
+			}
+			else
+			{
+				// Abandoned or error
+				throw MAKE_FAR_FATAL_EXCEPTION(format(FSTR(L"WaitForMultipleObjects returned {0}"), Result));
+			}
+		}
+
+		void handle_closer::operator()(HANDLE Handle) const noexcept
 		{
 			CloseHandle(Handle);
 		}
 
-		void printer_handle_closer::operator()(HANDLE Handle) const
+		void printer_handle_closer::operator()(HANDLE Handle) const noexcept
 		{
 			ClosePrinter(Handle);
 		}
@@ -124,22 +143,50 @@ string GetErrorString(bool Nt, DWORD Code)
 	return Result;
 }
 
+string format_system_error(unsigned int const ErrorCode, string_view const ErrorMessage)
+{
+	return format(FSTR(L"0x{0:0>8X} - {1}"), ErrorCode, ErrorMessage);
+}
+
+
+last_error_guard::last_error_guard():
+	m_LastError(GetLastError()),
+	m_LastStatus(imports.RtlGetLastNtStatus()),
+	m_Active(true)
+{
+}
+
+last_error_guard::~last_error_guard()
+{
+	if (!m_Active)
+		return;
+
+	SetLastError(m_LastError);
+	imports.RtlNtStatusToDosError(m_LastStatus);
+}
+
+void last_error_guard::dismiss()
+{
+	m_Active = false;
+}
+
+
 bool WNetGetConnection(const string_view LocalName, string &RemoteName)
 {
 	auto Buffer = os::buffer<wchar_t>();
 	// MSDN says that call can fail with ERROR_NOT_CONNECTED or ERROR_CONNECTION_UNAVAIL if calling application
 	// is running in a different logon session than the application that made the connection.
 	// However, it may fail with ERROR_NOT_CONNECTED for non-network too, in this case Buffer will not be initialised.
-	// Deliberately initialised with empty string to fix that.
-	Buffer[0] = L'\0';
+	// Deliberately initialised with an empty string to fix that.
+	Buffer.front() = {};
 	auto Size = static_cast<DWORD>(Buffer.size());
-	null_terminated C_LocalName(LocalName);
-	auto Result = ::WNetGetConnection(C_LocalName.c_str(), Buffer.get(), &Size);
+	const null_terminated C_LocalName(LocalName);
+	auto Result = ::WNetGetConnection(C_LocalName.c_str(), Buffer.data(), &Size);
 
 	while (Result == ERROR_MORE_DATA)
 	{
 		Buffer.reset(Size);
-		Result = ::WNetGetConnection(C_LocalName.c_str(), Buffer.get(), &Size);
+		Result = ::WNetGetConnection(C_LocalName.c_str(), Buffer.data(), &Size);
 	}
 
 	const auto IsReceived = [](int Code) { return Code == NO_ERROR || Code == ERROR_NOT_CONNECTED || Code == ERROR_CONNECTION_UNAVAIL; };
@@ -147,38 +194,11 @@ bool WNetGetConnection(const string_view LocalName, string &RemoteName)
 	if (IsReceived(Result) && *Buffer)
 	{
 		// Size isn't updated if the buffer is large enough
-		RemoteName = Buffer.get();
+		RemoteName = Buffer.data();
 		return true;
 	}
 
 	return false;
-}
-
-void EnableLowFragmentationHeap()
-{
-	// Starting with Windows Vista, the system uses the low-fragmentation heap (LFH) as needed to service memory allocation requests.
-	// Applications do not need to enable the LFH for their heaps.
-	if (IsWindowsVistaOrGreater())
-		return;
-
-	if (!imports.HeapSetInformation)
-		return;
-
-	std::vector<HANDLE> Heaps(10);
-	for (;;)
-	{
-		const auto NumberOfHeaps = ::GetProcessHeaps(static_cast<DWORD>(Heaps.size()), Heaps.data());
-		const auto Received = NumberOfHeaps <= Heaps.size();
-		Heaps.resize(NumberOfHeaps);
-		if (Received)
-			break;
-	}
-
-	for (const auto i: Heaps)
-	{
-		ULONG HeapFragValue = 2;
-		imports.HeapSetInformation(i, HeapCompatibilityInformation, &HeapFragValue, sizeof(HeapFragValue));
-	}
 }
 
 bool get_locale_value(LCID const LcId, LCTYPE const Id, string& Value)
@@ -197,9 +217,15 @@ bool get_locale_value(LCID const LcId, LCTYPE const Id, int& Value)
 
 string GetPrivateProfileString(string_view const AppName, string_view const KeyName, string_view const Default, string_view const FileName)
 {
-	const wchar_t_ptr Buffer(NT_MAX_PATH);
-	const auto Size = ::GetPrivateProfileString(null_terminated(AppName).c_str(), null_terminated(KeyName).c_str(), null_terminated(Default).c_str(), Buffer.get(), static_cast<DWORD>(Buffer.size()), null_terminated(FileName).c_str());
-	return { Buffer.get(), Size };
+	string Value;
+
+	(void)detail::ApiDynamicStringReceiver(Value, [&](span<wchar_t> const Buffer)
+	{
+		const auto Size = ::GetPrivateProfileString(null_terminated(AppName).c_str(), null_terminated(KeyName).c_str(), null_terminated(Default).c_str(), Buffer.data(), static_cast<DWORD>(Buffer.size()), null_terminated(FileName).c_str());
+		return Size == Buffer.size() - 1? Buffer.size() * 2 : Size;
+	});
+
+	return Value;
 }
 
 bool GetWindowText(HWND Hwnd, string& Text)
@@ -207,7 +233,7 @@ bool GetWindowText(HWND Hwnd, string& Text)
 	// GetWindowText[Length] might return 0 not only in case of failure, but also when the window title is empty.
 	// To recognise this, we set LastError to ERROR_SUCCESS manually and check it after the call,
 	// which doesn't change it upon success.
-	GuardLastError ErrorGuard;
+	last_error_guard ErrorGuard;
 	SetLastError(ERROR_SUCCESS);
 
 	if (detail::ApiDynamicStringReceiver(Text, [&](span<wchar_t> Buffer)
@@ -272,11 +298,11 @@ bool GetDefaultPrinter(string& Printer)
 {
 	return detail::ApiDynamicStringReceiver(Printer, [&](span<wchar_t> Buffer)
 	{
-		auto dwSize = static_cast<DWORD>(Buffer.size());
-		if (::GetDefaultPrinter(Buffer.data(), &dwSize))
-			return dwSize - 1;
+		auto Size = static_cast<DWORD>(Buffer.size());
+		if (::GetDefaultPrinter(Buffer.data(), &Size))
+			return Size - 1;
 
-		return GetLastError() == ERROR_INSUFFICIENT_BUFFER? dwSize : 0;
+		return GetLastError() == ERROR_INSUFFICIENT_BUFFER? Size : 0;
 	});
 }
 
@@ -295,10 +321,10 @@ bool GetComputerNameEx(COMPUTER_NAME_FORMAT NameFormat, string& Name)
 {
 	return detail::ApiDynamicStringReceiver(Name, [&](span<wchar_t> Buffer)
 	{
-		auto dwSize = static_cast<DWORD>(Buffer.size());
-		if (!::GetComputerNameEx(NameFormat, Buffer.data(), &dwSize) && GetLastError() != ERROR_MORE_DATA)
+		auto Size = static_cast<DWORD>(Buffer.size());
+		if (!::GetComputerNameEx(NameFormat, Buffer.data(), &Size) && GetLastError() != ERROR_MORE_DATA)
 			return 0ul;
-		return dwSize;
+		return Size;
 	});
 }
 
@@ -317,10 +343,10 @@ bool GetUserNameEx(EXTENDED_NAME_FORMAT NameFormat, string& Name)
 {
 	return detail::ApiDynamicStringReceiver(Name, [&](span<wchar_t> Buffer)
 	{
-		auto dwSize = static_cast<DWORD>(Buffer.size());
-		if (!::GetUserNameEx(NameFormat, Buffer.data(), &dwSize) && GetLastError() != ERROR_MORE_DATA)
+		auto Size = static_cast<DWORD>(Buffer.size());
+		if (!::GetUserNameEx(NameFormat, Buffer.data(), &Size) && GetLastError() != ERROR_MORE_DATA)
 			return 0ul;
-		return dwSize;
+		return Size;
 	});
 }
 
@@ -366,7 +392,7 @@ handle OpenConsoleActiveScreenBuffer()
 			FreeLibrary(Module);
 		}
 
-		HMODULE module::get_module() const
+		HMODULE module::get_module() const noexcept
 		{
 			if (!m_tried && !m_module && !m_name.empty())
 			{
@@ -382,29 +408,40 @@ handle OpenConsoleActiveScreenBuffer()
 			return m_module.get();
 		}
 	}
-}
 
-UUID CreateUuid()
-{
-	UUID Uuid;
-	UuidCreate(&Uuid);
-	return Uuid;
-}
+	namespace uuid
+	{
+		UUID generate()
+		{
+			UUID Uuid;
+			UuidCreate(&Uuid);
+			return Uuid;
+		}
+	}
 
-string GuidToStr(const GUID& Guid)
-{
-	RPC_WSTR Str;
-	// declared as non-const in GCC headers :(
-	if (UuidToString(const_cast<GUID*>(&Guid), &Str) != RPC_S_OK)
-		throw std::bad_alloc{};
+	namespace debug
+	{
+		bool debugger_present()
+		{
+			return IsDebuggerPresent() != FALSE;
+		}
 
-	SCOPE_EXIT{ RpcStringFree(&Str); };
-	return upper(string_view{ reinterpret_cast<const wchar_t*>(Str) });
-}
+		void breakpoint(bool const Always)
+		{
+			if (Always || debugger_present())
+				DebugBreak();
+		}
 
-bool StrToGuid(string_view const Value, GUID& Guid)
-{
-	return UuidFromString(reinterpret_cast<RPC_WSTR>(const_cast<wchar_t*>(null_terminated(Value).c_str())), &Guid) == RPC_S_OK;
+		void print(const wchar_t* const Str)
+		{
+			OutputDebugString(Str);
+		}
+
+		void print(string const& Str)
+		{
+			print(Str.c_str());
+		}
+	}
 }
 
 #ifdef ENABLE_TESTS
@@ -422,7 +459,7 @@ TEST_CASE("platform.string.receiver")
 		if (BufferSize < Data.size() + 1)
 			return Data.size() + 1;
 
-		*std::copy(ALL_CONST_RANGE(Data), Buffer) = L'\0';
+		*copy_string(Data, Buffer) = {};
 
 		return Data.size();
 	};

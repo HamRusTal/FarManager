@@ -29,6 +29,9 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// BUGBUG
+#include "platform.headers.hpp"
+
 // Self:
 #include "plclass.hpp"
 
@@ -36,18 +39,18 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "plugins.hpp"
 #include "pathmix.hpp"
 #include "config.hpp"
-#include "chgprior.hpp"
 #include "farversion.hpp"
 #include "plugapi.hpp"
 #include "message.hpp"
 #include "dirmix.hpp"
 #include "strmix.hpp"
-#include "FarGuid.hpp"
-#include "processname.hpp"
+#include "uuids.far.hpp"
 #include "lang.hpp"
 #include "language.hpp"
 #include "configdb.hpp"
 #include "global.hpp"
+#include "encoding.hpp"
+#include "exception_handler.hpp"
 
 // Platform:
 #include "platform.env.hpp"
@@ -55,7 +58,10 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Common:
 #include "common/enum_tokens.hpp"
+#include "common/scope_exit.hpp"
+#include "common/uuid.hpp"
 #include "common/view/zip.hpp"
+
 
 // External:
 #include "format.hpp"
@@ -114,7 +120,7 @@ std::unique_ptr<Plugin> plugin_factory::CreatePlugin(const string& filename)
 plugin_factory::plugin_factory(PluginManager* owner):
 	m_owner(owner)
 {
-	static const export_name ExportsNames[] =
+	static const export_name ExportsNames[]
 	{
 		WA("GetGlobalInfoW"),
 		WA("SetStartupInfoW"),
@@ -150,31 +156,11 @@ plugin_factory::plugin_factory(PluginManager* owner):
 		WA("GetContentDataW"),
 		WA("FreeContentDataW"),
 
-		WA(""), // OpenFilePlugin not used
-		WA(""), // GetMinFarVersion not used
+		{}, // OpenFilePlugin not used
+		{}, // GetMinFarVersion not used
 	};
 	static_assert(std::size(ExportsNames) == ExportsCount);
 	m_ExportsNames = ExportsNames;
-}
-
-bool native_plugin_factory::IsPlugin(const string& filename) const
-{
-	if (!ends_with_icase(filename, L".dll"sv))
-		return false;
-
-	const auto ModuleFile = os::fs::create_file(filename, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING);
-	if (!ModuleFile)
-		return false;
-
-	const auto ModuleMapping = os::handle(CreateFileMapping(ModuleFile.native_handle(), nullptr, PAGE_READONLY, 0, 0, nullptr));
-	if (!ModuleMapping)
-		return false;
-
-	const auto Data = os::fs::file_view(MapViewOfFile(ModuleMapping.native_handle(), FILE_MAP_READ, 0, 0, 0));
-	if (!Data)
-		return false;
-
-	return IsPlugin2(Data.get());
 }
 
 plugin_factory::plugin_module_ptr native_plugin_factory::Create(const string& filename)
@@ -207,7 +193,7 @@ bool native_plugin_factory::Destroy(plugin_factory::plugin_module_ptr& instance)
 
 plugin_factory::function_address native_plugin_factory::Function(const plugin_factory::plugin_module_ptr& Instance, const plugin_factory::export_name& Name)
 {
-	return !Name.AName.empty()? static_cast<native_plugin_module*>(Instance.get())->GetProcAddress(null_terminated_t<char>(Name.AName).c_str()) : nullptr;
+	return !Name.AName.empty()? static_cast<native_plugin_module*>(Instance.get())->GetProcAddress<function_address>(null_terminated_t<char>(Name.AName).c_str()) : nullptr;
 }
 
 bool native_plugin_factory::FindExport(const std::string_view ExportName) const
@@ -216,59 +202,32 @@ bool native_plugin_factory::FindExport(const std::string_view ExportName) const
 	return ExportName == m_ExportsNames[iGetGlobalInfo].AName;
 }
 
-bool native_plugin_factory::IsPlugin2(const void* Module) const
+template<typename T>
+static decltype(auto) view_as(void const* const BaseAddress, IMAGE_SECTION_HEADER const& Section, size_t const VirtualAddress)
 {
-	return seh_invoke_no_ui([&]
-	{
-		const auto& DOSHeader = *static_cast<const IMAGE_DOS_HEADER*>(Module);
-		if (DOSHeader.e_magic != IMAGE_DOS_SIGNATURE)
-			return false;
+	return view_as<T>(BaseAddress, Section.PointerToRawData + (VirtualAddress - Section.VirtualAddress));
+}
 
-		const auto& PEHeader = *static_cast<const IMAGE_NT_HEADERS*>(static_cast<const void*>(static_cast<const char*>(Module) + DOSHeader.e_lfanew));
-
-		if (PEHeader.Signature != IMAGE_NT_SIGNATURE)
-			return false;
-
-		if (!(PEHeader.FileHeader.Characteristics & IMAGE_FILE_DLL))
-			return false;
-
-		static const auto FarMachineType = []
-		{
-			const void* FarModule = GetModuleHandle(nullptr);
-			return reinterpret_cast<const IMAGE_NT_HEADERS*>(static_cast<const char*>(FarModule) + static_cast<const IMAGE_DOS_HEADER*>(FarModule)->e_lfanew)->FileHeader.Machine;
-		}();
-
-		if (PEHeader.FileHeader.Machine != FarMachineType)
-			return false;
-
-		const auto ExportAddr = PEHeader.OptionalHeader.DataDirectory[0].VirtualAddress;
-
-		if (!ExportAddr)
-			return false;
-
-		for (const auto& Section: span(IMAGE_FIRST_SECTION(&PEHeader), PEHeader.FileHeader.NumberOfSections))
-		{
-			if ((Section.VirtualAddress == ExportAddr) ||
-				((Section.VirtualAddress <= ExportAddr) && ((Section.Misc.VirtualSize + Section.VirtualAddress) > ExportAddr)))
-			{
-				const auto GetAddress = [&](size_t Offset) -> const void*
-				{
-					return static_cast<const char*>(Module) + Section.PointerToRawData - Section.VirtualAddress + Offset;
-				};
-
-				const auto& ExportDir = *static_cast<const IMAGE_EXPORT_DIRECTORY*>(GetAddress(ExportAddr));
-				const auto Names = span(static_cast<const DWORD*>(GetAddress(ExportDir.AddressOfNames)), ExportDir.NumberOfNames);
-
-				if (std::any_of(ALL_CONST_RANGE(Names), [&](DWORD NameOffset)
-				{
-					return FindExport(static_cast<const char*>(GetAddress(NameOffset)));
-				}))
-				{
-					return true;
-				}
-			}
-		}
+bool native_plugin_factory::IsPlugin(const string& FileName) const
+{
+	if (!ends_with_icase(FileName, L".dll"sv))
 		return false;
+
+	const os::fs::file ModuleFile(FileName, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING);
+	if (!ModuleFile)
+		return false;
+
+	const os::handle ModuleMapping(CreateFileMapping(ModuleFile.get().native_handle(), nullptr, PAGE_READONLY, 0, 0, nullptr));
+	if (!ModuleMapping)
+		return false;
+
+	const os::fs::file_view Data(MapViewOfFile(ModuleMapping.native_handle(), FILE_MAP_READ, 0, 0, 0));
+	if (!Data)
+		return false;
+
+	return seh_try_no_ui([&]
+	{
+		return IsPlugin(Data.get());
 	},
 	[]
 	{
@@ -277,9 +236,59 @@ bool native_plugin_factory::IsPlugin2(const void* Module) const
 	});
 }
 
-static void PrepareModulePath(const string& ModuleName)
+bool native_plugin_factory::IsPlugin(const void* Data) const
 {
-	string strModulePath = ModuleName;
+	const auto& DosHeader = view_as<IMAGE_DOS_HEADER>(Data, 0);
+	if (DosHeader.e_magic != IMAGE_DOS_SIGNATURE)
+		return false;
+
+	const auto& NtHeaders = view_as<IMAGE_NT_HEADERS>(Data, DosHeader.e_lfanew);
+
+	if (NtHeaders.Signature != IMAGE_NT_SIGNATURE)
+		return false;
+
+	if (!(NtHeaders.FileHeader.Characteristics & IMAGE_FILE_DLL))
+		return false;
+
+	static const auto FarMachineType = []
+	{
+		const auto FarModule = GetModuleHandle(nullptr);
+		const auto& FarDosHeader = view_as<IMAGE_DOS_HEADER>(FarModule, 0);
+		const auto& FarNtHeaders = view_as<IMAGE_NT_HEADERS>(FarModule, FarDosHeader.e_lfanew);
+		return FarNtHeaders.FileHeader.Machine;
+	}();
+
+	if (NtHeaders.FileHeader.Machine != FarMachineType)
+		return false;
+
+	const auto ExportDirectoryAddress = NtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+	if (!ExportDirectoryAddress)
+		return false;
+
+	const auto FirstSection = view_as<IMAGE_SECTION_HEADER const*>(&NtHeaders, offsetof(IMAGE_NT_HEADERS, OptionalHeader) + NtHeaders.FileHeader.SizeOfOptionalHeader);
+	const span Sections(FirstSection, NtHeaders.FileHeader.NumberOfSections);
+	const auto SectionIterator = std::find_if(ALL_CONST_RANGE(Sections), [&](IMAGE_SECTION_HEADER const& Section)
+	{
+		return
+			Section.VirtualAddress == ExportDirectoryAddress ||
+			(Section.VirtualAddress <= ExportDirectoryAddress && ExportDirectoryAddress < Section.VirtualAddress + Section.Misc.VirtualSize);
+	});
+
+	if (SectionIterator == Sections.cend())
+		return false;
+
+	const auto& ExportDirectory = view_as<IMAGE_EXPORT_DIRECTORY>(Data, *SectionIterator, ExportDirectoryAddress);
+	const span Names(view_as<DWORD const*>(Data, *SectionIterator, ExportDirectory.AddressOfNames), ExportDirectory.NumberOfNames);
+
+	return std::any_of(ALL_CONST_RANGE(Names), [&](DWORD const NameAddress)
+	{
+		return FindExport(view_as<char const*>(Data, *SectionIterator, NameAddress));
+	});
+}
+
+static void PrepareModulePath(string_view const ModuleName)
+{
+	auto strModulePath = ModuleName;
 	CutToSlash(strModulePath); //??
 	FarChDir(strModulePath);
 }
@@ -335,18 +344,13 @@ static void CreatePluginStartupInfo(const Plugin* pPlugin, PluginStartupInfo *PS
 
 static void ShowMessageAboutIllegalPluginVersion(const string& plg, const VersionInfo& required)
 {
-	const auto str = [](const VersionInfo& Version)
-	{
-		return format(FSTR(L"{0}.{1}.{2}.{3}"), Version.Major, Version.Minor, Version.Revision, Version.Build);
-	};
-
 	Message(MSG_WARNING|MSG_NOPLUGINS,
 		msg(lng::MError),
 		{
 			msg(lng::MPlgBadVers),
 			plg,
-			format(msg(lng::MPlgRequired), str(required)),
-			format(msg(lng::MPlgRequired2), str(build::version()))
+			format(msg(lng::MPlgRequired), version_to_string(required)),
+			format(msg(lng::MPlgRequired2), version_to_string(build::version()))
 		},
 		{ lng::MOk }
 	);
@@ -397,16 +401,16 @@ bool Plugin::SaveToCache()
 	PlCache->SetCommandPrefix(id, NullToEmpty(Info.CommandPrefix));
 	PlCache->SetFlags(id, Info.Flags);
 
-	PlCache->SetMinFarVersion(id, &m_MinFarVersion);
-	PlCache->SetGuid(id, m_strGuid);
-	PlCache->SetVersion(id, &m_PluginVersion);
+	PlCache->SetMinFarVersion(id, m_MinFarVersion);
+	PlCache->SetUuid(id, m_strUuid);
+	PlCache->SetVersion(id, m_PluginVersion);
 	PlCache->SetTitle(id, strTitle);
 	PlCache->SetDescription(id, strDescription);
 	PlCache->SetAuthor(id, strAuthor);
 
 	for (const auto& [Name, Export]: zip(m_Factory->ExportsNames(), Exports))
 	{
-		PlCache->SetExportState(id, Name.UName, Export.has_value());
+		PlCache->SetExportState(id, Name.UName, Export != nullptr);
 	}
 
 	return true;
@@ -416,8 +420,7 @@ void Plugin::InitExports()
 {
 	for (const auto& [Name, Export]: zip(m_Factory->ExportsNames(), Exports))
 	{
-		if (const auto Address = m_Factory->Function(m_Instance, Name))
-			Export = Address;
+		Export = m_Factory->Function(m_Instance, Name);
 	}
 }
 
@@ -427,15 +430,15 @@ Plugin::Plugin(plugin_factory* Factory, const string& ModuleName):
 	m_strCacheName(ModuleName)
 {
 	ReplaceBackslashToSlash(m_strCacheName);
-	SetGuid(FarGuid);
+	SetUuid(FarUuid);
 }
 
 Plugin::~Plugin() = default;
 
-void Plugin::SetGuid(const GUID& Guid)
+void Plugin::SetUuid(const UUID& Uuid)
 {
-	m_Guid = Guid;
-	m_strGuid = GuidToStr(m_Guid);
+	m_Uuid = Uuid;
+	m_strUuid = uuid::str(m_Uuid);
 }
 
 bool Plugin::LoadData()
@@ -450,12 +453,11 @@ bool Plugin::LoadData()
 		return true;
 
 	string strCurPlugDiskPath;
-	wchar_t Drive[]={0,L' ',L':',0}; //ставим 0, как признак того, что вертать обратно ненадо!
+	wchar_t Drive[]{ L'=', 0, L':', 0 };
 	const auto strCurPath = os::fs::GetCurrentDirectory();
 
 	if (ParsePath(m_strModuleName) == root_type::drive_letter)  // если указан локальный путь, то...
 	{
-		Drive[0] = L'=';
 		Drive[1] = m_strModuleName.front();
 		strCurPlugDiskPath = os::env::get(Drive);
 	}
@@ -464,7 +466,7 @@ bool Plugin::LoadData()
 	m_Instance = m_Factory->Create(m_strModuleName);
 	FarChDir(strCurPath);
 
-	if (Drive[0]) // вернем ее (переменную окружения) обратно
+	if (Drive[1]) // вернем ее (переменную окружения) обратно
 		os::env::set(Drive, strCurPlugDiskPath);
 
 	if (!m_Instance)
@@ -499,15 +501,15 @@ bool Plugin::LoadData()
 
 		bool ok = false;
 
-		if (Info.Guid != FarGuid)
+		if (Info.Guid != FarUuid)
 		{
-			if (m_Guid != FarGuid && m_Guid != Info.Guid)
+			if (m_Uuid != FarUuid && m_Uuid != Info.Guid)
 			{
 				ok = m_Factory->Owner()->UpdateId(this, Info.Guid);
 			}
 			else
 			{
-				SetGuid(Info.Guid);
+				SetUuid(Info.Guid);
 				ok = true;
 			}
 		}
@@ -586,18 +588,23 @@ bool Plugin::LoadFromCache(const os::fs::find_data &FindData)
 			return false;
 	}
 
-	if (!PlCache->GetMinFarVersion(id, &m_MinFarVersion))
+	if (!PlCache->GetMinFarVersion(id, m_MinFarVersion))
 	{
 		m_MinFarVersion = build::version();
 	}
 
-	if (!PlCache->GetVersion(id, &m_PluginVersion))
+	if (!PlCache->GetVersion(id, m_PluginVersion))
 	{
 		m_PluginVersion = {};
 	}
 
-	m_strGuid = PlCache->GetGuid(id);
-	SetGuid(StrToGuid(m_strGuid,m_Guid)?m_Guid:FarGuid);
+	m_strUuid = PlCache->GetUuid(id);
+
+	if (const auto Uuid = uuid::try_parse(m_strUuid))
+		SetUuid(*Uuid);
+	else
+		SetUuid(FarUuid);
+
 	strTitle = PlCache->GetTitle(id);
 	strDescription = PlCache->GetDescription(id);
 	strAuthor = PlCache->GetAuthor(id);
@@ -605,7 +612,7 @@ bool Plugin::LoadFromCache(const os::fs::find_data &FindData)
 	for (const auto& [Name, Export]: zip(m_Factory->ExportsNames(), Exports))
 	{
 		if (PlCache->GetExportState(id, Name.UName))
-			Export = nullptr;
+			Export = ToPtr(true); // Fake, will be overwritten with the real address later
 	}
 
 	WorkFlags.Set(PIWF_CACHED); //too many "cached" flags
@@ -661,7 +668,7 @@ bool Plugin::RemoveDialog(const window_ptr& Dlg)
 
 bool Plugin::IsPanelPlugin()
 {
-	static const int PanelExports[] =
+	static const int PanelExports[]
 	{
 		iSetFindList,
 		iGetFindData,
@@ -680,9 +687,10 @@ bool Plugin::IsPanelPlugin()
 		iFreeVirtualFindData,
 		iClosePanel,
 	};
+
 	return std::any_of(CONST_RANGE(PanelExports, i)
 	{
-		return Exports[i].has_value();
+		return Exports[i] != nullptr;
 	});
 }
 
@@ -723,7 +731,7 @@ bool Plugin::CheckMinFarVersion()
 	return false;
 }
 
-bool Plugin::InitLang(const string& Path, const string& Language)
+bool Plugin::InitLang(string_view const Path, string_view const Language)
 {
 	if (PluginLang)
 		return true;
@@ -735,6 +743,7 @@ bool Plugin::InitLang(const string& Path, const string& Language)
 	}
 	catch (const std::exception&)
 	{
+		// TODO: log
 		return false;
 	}
 }
@@ -777,7 +786,6 @@ void Plugin::CloseAnalyse(CloseAnalyseInfo* Info)
 
 void* Plugin::Open(OpenInfo* Info)
 {
-	SCOPED_ACTION(ChangePriority)(THREAD_PRIORITY_NORMAL);
 	ExecuteStruct<iOpen> es;
 	if (Global->ProcessException || !Load() || !has(es))
 		return es;
@@ -1093,10 +1101,49 @@ void Plugin::ExitFAR(ExitInfo *Info)
 	ExecuteFunction(es, Info);
 }
 
-void Plugin::HandleFailure(EXPORTS_ENUM id)
+void Plugin::ExecuteFunctionImpl(export_index const ExportId, function_ref<void()> const Callback)
 {
-	m_Factory->Owner()->UnloadPlugin(this, id);
-	Global->ProcessException = false;
+	const auto HandleFailure = [&]
+	{
+		if (use_terminate_handler())
+			std::_Exit(EXIT_FAILURE);
+
+		m_Factory->Owner()->UnloadPlugin(this, ExportId);
+		Global->ProcessException = false;
+	};
+
+	seh_try_with_ui(
+	[&]
+	{
+		Prologue(); ++Activity;
+		SCOPE_EXIT{ --Activity; Epilogue(); };
+
+		const auto HandleException = [&](const auto& Handler, auto&&... ProcArgs)
+		{
+			Handler(FWD(ProcArgs)..., m_Factory->ExportsNames()[ExportId].AName, this)? HandleFailure() : throw;
+		};
+
+		cpp_try(
+		[&]
+		{
+			Callback();
+			rethrow_if(GlobalExceptionPtr());
+			m_Factory->ProcessError(m_Factory->ExportsNames()[ExportId].AName);
+		},
+		[&]
+		{
+			HandleException(handle_unknown_exception);
+		},
+		[&](std::exception const& e)
+		{
+			HandleException(handle_std_exception, e);
+		});
+	},
+	[&]
+	{
+		HandleFailure();
+	},
+	m_Factory->ExportsNames()[ExportId].AName, this);
 }
 
 class custom_plugin_module: public i_plugin_module
@@ -1136,7 +1183,7 @@ public:
 			}
 			// TODO: store info, show message if version is bad
 		}
-		custom_plugin_factory::ProcessError(L"Initialize"sv);
+		custom_plugin_factory::ProcessError(m_Imports.pInitialize.name());
 	}
 
 	~custom_plugin_factory() override
@@ -1146,7 +1193,7 @@ public:
 
 		ExitInfo Info = { sizeof(Info) };
 		m_Imports.pFree(&Info);
-		custom_plugin_factory::ProcessError(L"Free"sv);
+		custom_plugin_factory::ProcessError(m_Imports.pFree.name());
 	}
 
 	bool Success() const { return m_Success; }
@@ -1154,7 +1201,7 @@ public:
 	bool IsPlugin(const string& Filename) const override
 	{
 		const auto Result = m_Imports.pIsPlugin(Filename.c_str()) != FALSE;
-		ProcessError(L"IsPlugin"sv);
+		ProcessError(m_Imports.pIsPlugin.name());
 		return Result;
 	}
 
@@ -1165,7 +1212,7 @@ public:
 		{
 			Module.reset();
 		}
-		ProcessError(L"Create"sv);
+		ProcessError(m_Imports.pCreateInstance.name());
 		return Module;
 	}
 
@@ -1173,7 +1220,7 @@ public:
 	{
 		const auto Result = m_Imports.pDestroyInstance(static_cast<custom_plugin_module*>(Module.get())->opaque()) != FALSE;
 		Module.reset();
-		ProcessError(L"Destroy"sv);
+		ProcessError(m_Imports.pDestroyInstance.name());
 		return Result;
 	}
 
@@ -1182,11 +1229,11 @@ public:
 		if (Name.UName.empty())
 			return nullptr;
 		const auto Result = m_Imports.pGetFunctionAddress(static_cast<custom_plugin_module*>(Instance.get())->opaque(), null_terminated(Name.UName).c_str());
-		ProcessError(L"GetFunction"sv);
+		ProcessError(m_Imports.pGetFunctionAddress.name());
 		return Result;
 	}
 
-	void ProcessError(const string_view Function) const override
+	void ProcessError(const std::string_view Function) const override
 	{
 		if (!m_Imports.pGetError)
 			return;
@@ -1196,7 +1243,7 @@ public:
 			return;
 
 		std::vector<string> MessageLines;
-		const string Summary = concat(Info.Summary, L" ("sv, Function, L')');
+		const string Summary = concat(Info.Summary, L" ("sv, encoding::utf8::get_chars(Function), L')');
 		const auto Enumerator = enum_tokens(Info.Description, L"\n"sv);
 		std::transform(ALL_CONST_RANGE(Enumerator), std::back_inserter(MessageLines), [](const string_view View) { return string(View); });
 		Message(MSG_WARNING | MSG_LEFTALIGN,

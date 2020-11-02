@@ -1,4 +1,4 @@
-#ifndef LUAFAR_H
+﻿#ifndef LUAFAR_H
 #define LUAFAR_H
 
 #include <plugin.hpp>
@@ -37,7 +37,7 @@ typedef struct
 	void (*new_action)(int i);
 	void (*old_action)(int i);
 } TPluginData;
-TPluginData* GetPluginData(lua_State* L);
+extern TPluginData* (*GetPluginData)(lua_State* L);
 
 /*---------------------------------*/
 /* DO NOT CHANGE THESE SIGNATURES. */
@@ -67,6 +67,10 @@ typedef void           (*LUAFARAPI_PUTWSTRTOTABLE)     (lua_State *L, const char
 
 typedef int            (*LUAFARAPI_GETEXPORTFUNCTION)  (lua_State* L, const char* FuncName);
 typedef int            (*LUAFARAPI_PCALLMSG)           (lua_State* L, int narg, int nret);
+
+typedef int            (*LUAFARAPI_BIT64_PUSHUSERDATA) (lua_State *L, __int64 v);
+typedef int            (*LUAFARAPI_BIT64_PUSH)         (lua_State *L, __int64 v);
+typedef int            (*LUAFARAPI_BIT64_GETVALUE)     (lua_State *L, int pos, __int64 *target);
 
 
 /*---------------------------------------------------------------------------*/
@@ -101,6 +105,10 @@ typedef struct
 
 	LUAFARAPI_GETEXPORTFUNCTION    GetExportFunction;
 	LUAFARAPI_PCALLMSG             pcall_msg;
+
+	LUAFARAPI_BIT64_PUSHUSERDATA   bit64_pushuserdata;
+	LUAFARAPI_BIT64_PUSH           bit64_push;
+	LUAFARAPI_BIT64_GETVALUE       bit64_getvalue;
 } LuafarAPI;
 
 DLLFUNC void     LF_GetLuafarAPI (LuafarAPI *target);
